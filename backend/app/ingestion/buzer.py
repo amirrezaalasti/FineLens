@@ -9,9 +9,27 @@ from app.models.schemas import LegalSource
 
 BASE_URL = "https://www.buzer.de"
 
-# Demo paragraphs for Mietrecht / common legal topics
+# Diverse BGB clusters for balanced corpus seeding (not single-domain)
+BGB_SEED_CLUSTERS: dict[str, list[str]] = {
+    "eigentum_allgemein": ["903", "985", "986"],
+    "tierbesitz_fundrecht": ["958", "959", "960", "961", "962", "963", "964"],
+    "deliktsrecht": ["823", "826", "831"],
+    "bereicherung": ["812", "816", "818", "819"],
+    "mietrecht": ["535", "536", "558", "559", "561"],
+}
+
+
+def bgb_seed_paragraphs() -> list[str]:
+    seen: list[str] = []
+    for paragraphs in BGB_SEED_CLUSTERS.values():
+        for para in paragraphs:
+            if para not in seen:
+                seen.append(para)
+    return seen
+
+
 DEFAULT_PARAGRAPHS: dict[str, list[str]] = {
-    "BGB": ["535", "536", "558", "559", "561"],
+    "BGB": bgb_seed_paragraphs(),
     "GG": ["1", "2", "3"],
     "DSGVO": ["15", "17", "77"],
 }

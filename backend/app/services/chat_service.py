@@ -15,21 +15,14 @@ from app.models.schemas import (
 from app.services.chat_store import append_messages, get_or_create_session
 from app.services.form_templates import suggest_forms_for_query
 from app.services.law_text import enrich_citations
+from app.services.query_router import (
+    GUTACHTEN_SYSTEM_PROMPT,
+    SIMPLE_SYSTEM_PROMPT,
+    AnswerStyle,
+    build_user_prompt,
+    classify_query,
+)
 from app.services.user_store import get_profile
-
-SYSTEM_PROMPT = """Du bist RechtsLens, ein transparenter juristischer Assistent für deutsches Recht.
-
-Regeln:
-1. Beantworte Fragen klar und verständlich auf Deutsch.
-2. Nenne Gesetzesnormen EXAKT wie im bereitgestellten Kontext (z.B. „§ 558 BGB") — erfinde keine Paragraphen.
-3. Verweise auf Quellen NUR mit den exakten Nummern aus dem Kontext: [1], [2], etc.
-4. Jede Quellennummer in deiner Antwort muss im Kontext existieren; zitiere nur Quellen, die du tatsächlich verwendest.
-5. Gib KEINE verbindliche Rechtsberatung — weise auf einen Anwalt hin bei komplexen Fällen.
-6. Wenn ein Formular hilfreich wäre, erwähne es.
-7. Formatiere Antworten als Markdown: kurze ###-Überschrift, nummerierte Punkte mit **Fettdruck** für Schlüsselbegriffe, Absätze mit Leerzeile dazwischen.
-8. Setze Quellenverweise [1], [2] direkt am Ende des jeweiligen Satzes.
-9. Schließe mit einem kurzen >-Hinweis ab, dass dies keine Rechtsberatung ist.
-10. Sei ehrlich wenn der Kontext nicht ausreicht."""
 
 
 def _extract_cited_indices(text: str) -> set[int]:
@@ -54,7 +47,12 @@ def _map_source(name: str) -> LegalSource:
 async def generate_answer(request: ChatRequest) -> ChatResponse:
     profile = get_profile(request.user_id)
     session = get_or_create_session(request.user_id, request.session_id)
-    context_hits = await search_legal_context(request.message, limit=8)
+    answer_style = classify_query(request.message, profile)
+
+    context_hits = await search_legal_context(
+        request.message,
+        limit=settings.legal_search_limit,
+    )
 
     citations: list[Citation] = []
 
@@ -92,28 +90,28 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
         user_context = (
             f"\nNutzerprofil: {profile.first_name} {profile.last_name}, "
             f"Thema: {profile.legal_topic or 'nicht angegeben'}, "
-            f"Fall: {profile.case_description[:300] if profile.case_description else 'nicht beschrieben'}"
+            f"Fall: {profile.case_description[:500] if profile.case_description else 'nicht beschrieben'}"
         )
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system_prompt = (
+        GUTACHTEN_SYSTEM_PROMPT
+        if answer_style == AnswerStyle.GUTACHTEN
+        else SIMPLE_SYSTEM_PROMPT
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
     for msg in request.history[-6:]:
         messages.append({"role": msg.role, "content": msg.content})
 
-    prompt = f"""Rechtskontext aus der Wissensdatenbank:
-{context_block or '(Noch keine passenden Quellen im Graph — antworte allgemein und weise darauf hin.)'}
-{user_context}
-
-Frage des Nutzers: {request.message}
-
-Antworte auf Deutsch im Markdown-Format (### Überschrift, nummerierte Liste mit **Fettdruck**, Quellenverweise [1] am Satzende, abschließender >-Hinweis). Verwende die exakte Gesetzesreferenz und Quellennummer aus dem Kontext."""
-
+    prompt = build_user_prompt(context_block, user_context, request.message, answer_style)
     messages.append({"role": "user", "content": prompt})
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     completion = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages,
-        temperature=0.3,
+        temperature=0.2 if answer_style == AnswerStyle.GUTACHTEN else 0.3,
+        max_tokens=2000 if answer_style == AnswerStyle.GUTACHTEN else 1500,
     )
     answer = completion.choices[0].message.content or ""
 
@@ -126,7 +124,12 @@ Antworte auf Deutsch im Markdown-Format (### Überschrift, nummerierte Liste mit
         suggested_forms = suggest_forms_for_query(profile.legal_topic, profile)
 
     follow_ups: list[str] = []
-    if "miet" in request.message.lower():
+    if answer_style == AnswerStyle.GUTACHTEN:
+        follow_ups = [
+            "Welche weiteren Tatbestandsmerkmale sind streitig?",
+            "Welche Ausnahmen oder Verjährungsfristen gelten?",
+        ]
+    elif "miet" in request.message.lower():
         follow_ups = [
             "Welche Fristen gelten für einen Widerspruch?",
             "Brauche ich einen Anwalt für diesen Fall?",
@@ -137,16 +140,22 @@ Antworte auf Deutsch im Markdown-Format (### Überschrift, nummerierte Liste mit
             "Was tun bei fehlender Antwort?",
         ]
 
+    style_label = (
+        "Gutachtenstil (Obersatz–Definition–Subsumtion–Ergebnis)"
+        if answer_style == AnswerStyle.GUTACHTEN
+        else "Standardantwort"
+    )
     transparency = (
-        f"Diese Antwort basiert auf {len(citations)} Quelle(n) aus der Graphiti-Wissensdatenbank. "
-        "Jede Aussage ist auf Episoden mit Provenienz zurückführbar. "
+        f"Diese Antwort ({style_label}) basiert auf {len(citations)} Quelle(n) "
+        f"aus der Graphiti-Wissensdatenbank (BM25-gewichtete Hybrid-Suche, BFS-Tiefe "
+        f"{settings.legal_search_bfs_depth}). "
         "Dies ist keine Rechtsberatung."
     )
 
     try:
         await add_user_episode(
             request.user_id,
-            f"Frage: {request.message}\nAntwort-Zusammenfassung: {answer[:500]}",
+            f"Frage: {request.message}\nStil: {answer_style.value}\nAntwort-Zusammenfassung: {answer[:500]}",
             label="chat_interaction",
         )
     except Exception:

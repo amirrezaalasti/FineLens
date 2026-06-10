@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     )
     graphiti_telemetry_enabled: bool = False
     semaphore_limit: int = 5
+    legal_search_bfs_depth: int = 5
+    legal_search_bm25_weight: float = 3.0
+    legal_search_limit: int = 12
+    legal_search_runtime_fetch: bool = True
+    legal_search_min_quality: float = 0.12
+    legal_search_runtime_weight: float = 4.0
 
     @property
     def cors_origin_list(self) -> list[str]:

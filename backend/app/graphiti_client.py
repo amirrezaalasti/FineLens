@@ -9,6 +9,13 @@ from typing import Any
 from graphiti_core.nodes import EpisodeType
 
 from app.config import settings
+from app.models.legal_ontology import (
+    LEGAL_EDGE_TYPE_MAP,
+    LEGAL_EDGE_TYPES,
+    LEGAL_ENTITY_TYPES,
+    LEGAL_EXCLUDED_ENTITY_TYPES,
+    LEGAL_EXTRACTION_INSTRUCTIONS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +199,11 @@ async def add_legal_episode(
         source_description=f"{source_name}: {title}",
         reference_time=datetime.now(timezone.utc),
         group_id=LEGAL_GROUP,
+        entity_types=LEGAL_ENTITY_TYPES,
+        edge_types=LEGAL_EDGE_TYPES,
+        edge_type_map=LEGAL_EDGE_TYPE_MAP,
+        excluded_entity_types=LEGAL_EXCLUDED_ENTITY_TYPES,
+        custom_extraction_instructions=LEGAL_EXTRACTION_INSTRUCTIONS,
     )
     return episode_id
 
@@ -211,93 +223,6 @@ async def add_user_episode(user_id: str, content: str, label: str = "user_contex
 
 
 async def search_legal_context(query: str, limit: int = 8) -> list[dict[str, Any]]:
-    graphiti = await get_graphiti()
-    driver = graphiti.clients.driver.clone(database=LEGAL_GROUP)
+    from app.search.legal_retrieval import search_legal_context as legal_search
 
-    try:
-        from graphiti_core.search.search_config_recipes import EDGE_HYBRID_SEARCH_CROSS_ENCODER
-
-        search_config = EDGE_HYBRID_SEARCH_CROSS_ENCODER
-        search_config.limit = limit
-        results_obj = await graphiti.search_(
-            query=query,
-            group_ids=[LEGAL_GROUP],
-            config=search_config,
-            driver=driver,
-        )
-        results = results_obj.edges
-    except Exception:
-        results = await graphiti.search(
-            query=query,
-            group_ids=[LEGAL_GROUP],
-            num_results=limit,
-            driver=driver,
-        )
-
-    citations: list[dict[str, Any]] = []
-
-    for edge in results:
-        fact = getattr(edge, "fact", "") or getattr(edge, "name", "") or str(edge)
-        source_url = ""
-        source_name = ""
-        title = ""
-        reference = ""
-        episode_id = ""
-
-        for attr in ("attributes", "metadata", "custom_attributes"):
-            meta = getattr(edge, attr, None)
-            if isinstance(meta, dict):
-                source_url = meta.get("source_url", source_url)
-                source_name = meta.get("source", source_name)
-                title = meta.get("title", title)
-                reference = meta.get("law_reference", reference)
-
-        provenance = _parse_provenance(fact)
-        source_name = source_name or provenance.get("source", "")
-        title = title or provenance.get("title", "")
-        reference = reference or provenance.get("law_reference", "")
-        source_url = source_url or provenance.get("source_url", "")
-
-        if fact.startswith("[Quelle:"):
-            body_start = fact.find("]\n\n")
-            if body_start != -1:
-                fact = fact[body_start + 3 :]
-
-        citations.append(
-            {
-                "fact": fact,
-                "source_url": source_url,
-                "source": source_name,
-                "title": title,
-                "law_reference": reference,
-                "episode_id": episode_id,
-                "score": getattr(edge, "score", 0.75),
-            }
-        )
-
-    if not citations:
-        try:
-            node_results = await graphiti.search(
-                query=query,
-                group_ids=[LEGAL_GROUP],
-                num_results=limit,
-                driver=driver,
-            )
-            for node in node_results:
-                name = getattr(node, "name", "") or str(node)
-                summary = getattr(node, "summary", "") or ""
-                citations.append(
-                    {
-                        "fact": f"{name}: {summary}" if summary else name,
-                        "source_url": "",
-                        "source": "graphiti",
-                        "title": name,
-                        "law_reference": "",
-                        "episode_id": "",
-                        "score": 0.6,
-                    }
-                )
-        except Exception:
-            pass
-
-    return citations
+    return await legal_search(query, limit=limit)

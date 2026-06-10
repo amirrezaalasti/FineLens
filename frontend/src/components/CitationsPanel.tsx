@@ -19,7 +19,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export function CitationsPanel({ citations, transparencyNote }: CitationsPanelProps) {
   return (
-    <aside className="glass flex h-full flex-col rounded-2xl shadow-sm">
+    <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl shadow-sm">
       <div className="border-b border-navy/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-gold" />
@@ -30,7 +30,7 @@ export function CitationsPanel({ citations, transparencyNote }: CitationsPanelPr
         </p>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         {citations.length === 0 ? (
           <div className="rounded-xl border border-dashed border-navy/15 p-6 text-center text-sm text-slate-500">
             <FileText className="mx-auto mb-2 h-8 w-8 text-slate-300" />

@@ -31,7 +31,7 @@ export function ChatSidebar({
   loading,
 }: ChatSidebarProps) {
   return (
-    <aside className="glass flex max-h-48 flex-col rounded-2xl shadow-sm lg:max-h-none lg:h-full">
+    <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl shadow-sm">
       <div className="border-b border-navy/10 p-3">
         <button
           type="button"

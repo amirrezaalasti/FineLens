@@ -5,6 +5,7 @@ import { Header } from "@/components/Header";
 import { ChatPanel } from "@/components/ChatPanel";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
+import { ResizableChatLayout } from "@/components/ResizableChatLayout";
 import { ProfileWizard } from "@/components/ProfileWizard";
 import { FormsPanel } from "@/components/FormsPanel";
 import { SourcesPanel } from "@/components/SourcesPanel";
@@ -129,34 +130,45 @@ export default function Home() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-b from-cream via-white to-cream">
+    <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-cream via-white to-cream">
       <Header activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
+      <main
+        className={`mx-auto w-full min-h-0 flex-1 px-4 sm:px-6 ${
+          tab === "chat"
+            ? "max-w-[1800px] overflow-hidden py-3"
+            : "max-w-7xl overflow-y-auto py-6"
+        }`}
+      >
         {tab === "chat" && (
-          <div className="flex h-[calc(100vh-10rem)] flex-col gap-4 lg:grid lg:grid-cols-8">
-            <div className="lg:col-span-2 lg:h-full">
-              <ChatSidebar
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                onSelect={handleSelectSession}
-                onNewChat={handleNewChat}
-                onDelete={handleDeleteSession}
-                loading={sessionsLoading}
-              />
-            </div>
-            <div className="min-h-0 flex-1 lg:col-span-3 lg:h-full">
-              <ChatPanel
-                userId={USER_ID}
-                sessionId={activeSessionId}
-                onSessionIdChange={handleSessionIdChange}
-                onResponse={handleResponse}
-                onFormSuggest={setSuggestedForms}
-              />
-            </div>
-            <div className="min-h-0 flex-1 lg:col-span-3 lg:h-full">
-              <CitationsPanel citations={citations} transparencyNote={transparencyNote} />
-            </div>
+          <div className="h-full min-h-0">
+            <ResizableChatLayout
+              sidebar={
+                <ChatSidebar
+                  sessions={sessions}
+                  activeSessionId={activeSessionId}
+                  onSelect={handleSelectSession}
+                  onNewChat={handleNewChat}
+                  onDelete={handleDeleteSession}
+                  loading={sessionsLoading}
+                />
+              }
+              chat={
+                <ChatPanel
+                  userId={USER_ID}
+                  sessionId={activeSessionId}
+                  onSessionIdChange={handleSessionIdChange}
+                  onResponse={handleResponse}
+                  onFormSuggest={setSuggestedForms}
+                />
+              }
+              citations={
+                <CitationsPanel
+                  citations={citations}
+                  transparencyNote={transparencyNote}
+                />
+              }
+            />
           </div>
         )}
 
@@ -174,7 +186,7 @@ export default function Home() {
         {tab === "sources" && <SourcesPanel />}
       </main>
 
-      <footer className="border-t border-navy/10 bg-navy/5 py-4 text-center text-xs text-slate-500">
+      <footer className="shrink-0 border-t border-navy/10 bg-navy/5 py-2 text-center text-xs text-slate-500">
         RechtsLens · Keine Rechtsberatung · Daten: Open Legal Data, Gesetze im Internet,
         recht.bund.de · Engine:{" "}
         <a

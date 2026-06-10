@@ -107,7 +107,7 @@ export function ChatPanel({
   };
 
   return (
-    <div className="glass flex h-full flex-col rounded-2xl shadow-sm">
+    <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl shadow-sm">
       <div className="border-b border-navy/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-gold" />
@@ -118,7 +118,7 @@ export function ChatPanel({
         </p>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {loadingSession ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />

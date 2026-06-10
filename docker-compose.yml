@@ -1,0 +1,30 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      # Host 6380 avoids conflict with a local Redis on 6379
+      - "6380:6379"
+      - "3001:3000"
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.26
+    profiles: ["neo4j"]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/rechtslens123
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  falkordb_data:
+  neo4j_data:

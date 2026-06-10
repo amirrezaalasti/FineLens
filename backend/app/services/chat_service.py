@@ -1,3 +1,5 @@
+import re
+
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -8,20 +10,30 @@ from app.models.schemas import (
     Citation,
     LegalSource,
     SOURCE_URLS,
+    StoredChatMessage,
 )
+from app.services.chat_store import append_messages, get_or_create_session
 from app.services.form_templates import suggest_forms_for_query
+from app.services.law_text import enrich_citations
 from app.services.user_store import get_profile
 
 SYSTEM_PROMPT = """Du bist RechtsLens, ein transparenter juristischer Assistent für deutsches Recht.
 
 Regeln:
 1. Beantworte Fragen klar und verständlich auf Deutsch.
-2. Zitiere IMMER die relevanten Gesetzesnormen (z.B. § 558 BGB).
-3. Verweise auf die bereitgestellten Quellen im Kontext.
-4. Gib KEINE verbindliche Rechtsberatung — weise auf einen Anwalt hin bei komplexen Fällen.
-5. Wenn ein Formular hilfreich wäre, erwähne es.
-6. Strukturiere Antworten mit kurzen Absätzen und Aufzählungen wo sinnvoll.
-7. Sei ehrlich wenn der Kontext nicht ausreicht."""
+2. Nenne Gesetzesnormen EXAKT wie im bereitgestellten Kontext (z.B. „§ 558 BGB") — erfinde keine Paragraphen.
+3. Verweise auf Quellen NUR mit den exakten Nummern aus dem Kontext: [1], [2], etc.
+4. Jede Quellennummer in deiner Antwort muss im Kontext existieren; zitiere nur Quellen, die du tatsächlich verwendest.
+5. Gib KEINE verbindliche Rechtsberatung — weise auf einen Anwalt hin bei komplexen Fällen.
+6. Wenn ein Formular hilfreich wäre, erwähne es.
+7. Formatiere Antworten als Markdown: kurze ###-Überschrift, nummerierte Punkte mit **Fettdruck** für Schlüsselbegriffe, Absätze mit Leerzeile dazwischen.
+8. Setze Quellenverweise [1], [2] direkt am Ende des jeweiligen Satzes.
+9. Schließe mit einem kurzen >-Hinweis ab, dass dies keine Rechtsberatung ist.
+10. Sei ehrlich wenn der Kontext nicht ausreicht."""
+
+
+def _extract_cited_indices(text: str) -> set[int]:
+    return {int(m) for m in re.findall(r"\[(\d+)\]", text)}
 
 
 def _map_source(name: str) -> LegalSource:
@@ -41,9 +53,9 @@ def _map_source(name: str) -> LegalSource:
 
 async def generate_answer(request: ChatRequest) -> ChatResponse:
     profile = get_profile(request.user_id)
+    session = get_or_create_session(request.user_id, request.session_id)
     context_hits = await search_legal_context(request.message, limit=8)
 
-    context_block = ""
     citations: list[Citation] = []
 
     for i, hit in enumerate(context_hits, 1):
@@ -53,22 +65,27 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
         title = hit.get("title", f"Quelle {i}")
         reference = hit.get("law_reference", "")
 
-        context_block += f"\n[{i}] {title}"
-        if reference:
-            context_block += f" ({reference})"
-        context_block += f"\n{fact}\nURL: {source_url}\n"
-
         citations.append(
             Citation(
                 source=source,
                 source_url=source_url,
                 title=title,
-                excerpt=fact[:500],
+                excerpt=fact,
                 law_reference=reference,
                 episode_id=hit.get("episode_id", ""),
                 confidence=min(hit.get("score", 0.75), 1.0),
+                ref_number=i,
             )
         )
+
+    citations = await enrich_citations(citations)
+
+    context_block = ""
+    for c in citations:
+        context_block += f"\n[{c.ref_number}] {c.title}"
+        if c.law_reference:
+            context_block += f" ({c.law_reference})"
+        context_block += f"\n{c.excerpt}\nURL: {c.source_url}\n"
 
     user_context = ""
     if profile.first_name or profile.legal_topic:
@@ -88,7 +105,7 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
 
 Frage des Nutzers: {request.message}
 
-Antworte auf Deutsch mit klaren Quellenverweisen [1], [2], etc."""
+Antworte auf Deutsch im Markdown-Format (### Überschrift, nummerierte Liste mit **Fettdruck**, Quellenverweise [1] am Satzende, abschließender >-Hinweis). Verwende die exakte Gesetzesreferenz und Quellennummer aus dem Kontext."""
 
     messages.append({"role": "user", "content": prompt})
 
@@ -97,9 +114,12 @@ Antworte auf Deutsch mit klaren Quellenverweisen [1], [2], etc."""
         model="gpt-4o-mini",
         messages=messages,
         temperature=0.3,
-        max_tokens=1500,
     )
     answer = completion.choices[0].message.content or ""
+
+    cited_indices = _extract_cited_indices(answer)
+    if cited_indices:
+        citations = [c for c in citations if c.ref_number in cited_indices]
 
     suggested_forms = suggest_forms_for_query(request.message, profile)
     if not suggested_forms and profile.legal_topic:
@@ -132,10 +152,23 @@ Antworte auf Deutsch mit klaren Quellenverweisen [1], [2], etc."""
     except Exception:
         pass
 
+    append_messages(
+        session.id,
+        StoredChatMessage(role="user", content=request.message),
+        StoredChatMessage(
+            role="assistant",
+            content=answer,
+            citations=citations,
+            transparency_note=transparency,
+            suggested_forms=suggested_forms,
+        ),
+    )
+
     return ChatResponse(
         answer=answer,
         citations=citations,
         suggested_forms=suggested_forms,
         follow_up_questions=follow_ups,
         transparency_note=transparency,
+        session_id=session.id,
     )

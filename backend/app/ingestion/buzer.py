@@ -69,7 +69,7 @@ def _parse_query(query: str) -> tuple[str | None, str | None]:
     return None, cleaned.upper()
 
 
-async def _fetch_paragraph(paragraph: str, law_code: str) -> tuple[str, str, str]:
+async def fetch_law_paragraph(paragraph: str, law_code: str) -> tuple[str, str, str]:
     path = f"/{paragraph}_{law_code}.htm"
     url = f"{BASE_URL}{path}"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
@@ -143,7 +143,7 @@ async def ingest_from_buzer(
     count = 0
     for para in targets[:limit]:
         try:
-            title, content, url = await _fetch_paragraph(para, law_code)
+            title, content, url = await fetch_law_paragraph(para, law_code)
             if not content:
                 continue
             await add_legal_episode(

@@ -1,4 +1,11 @@
-import type { ChatMessage, LegalForm, SourceInfo, UserProfile } from "./types";
+import type {
+  ChatMessage,
+  ChatSession,
+  ChatSessionSummary,
+  LegalForm,
+  SourceInfo,
+  UserProfile,
+} from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -20,7 +27,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export async function sendChat(
   message: string,
   userId: string,
-  history: { role: string; content: string }[]
+  history: { role: string; content: string }[],
+  sessionId?: string | null
 ) {
   return request<{
     answer: string;
@@ -28,10 +36,38 @@ export async function sendChat(
     suggested_forms: LegalForm[];
     follow_up_questions: string[];
     transparency_note: string;
+    session_id: string;
   }>("/chat", {
     method: "POST",
-    body: JSON.stringify({ message, user_id: userId, history }),
+    body: JSON.stringify({
+      message,
+      user_id: userId,
+      history,
+      session_id: sessionId || null,
+    }),
   });
+}
+
+export async function listChatSessions(userId: string) {
+  return request<ChatSessionSummary[]>(`/chat/sessions?user_id=${userId}`);
+}
+
+export async function createChatSession(userId: string) {
+  return request<ChatSession>("/chat/sessions", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export async function getChatSession(sessionId: string, userId: string) {
+  return request<ChatSession>(`/chat/sessions/${sessionId}?user_id=${userId}`);
+}
+
+export async function deleteChatSession(sessionId: string, userId: string) {
+  return request<{ deleted: boolean }>(
+    `/chat/sessions/${sessionId}?user_id=${userId}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function getProfile(userId: string) {

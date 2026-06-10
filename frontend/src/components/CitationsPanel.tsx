@@ -26,7 +26,7 @@ export function CitationsPanel({ citations, transparencyNote }: CitationsPanelPr
           <h2 className="font-semibold text-navy">Quellen & Transparenz</h2>
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Jede Antwort ist auf Graphiti-Episoden zurückführbar
+          Gesetzestexte im Wortlaut — verifiziert über buzer.de
         </p>
       </div>
 
@@ -38,39 +38,54 @@ export function CitationsPanel({ citations, transparencyNote }: CitationsPanelPr
             Gesetzesverweisen.
           </div>
         ) : (
-          citations.map((c, i) => (
-            <article
-              key={`${c.title}-${i}`}
-              className="animate-fade-up rounded-xl border border-navy/8 bg-white p-3 shadow-sm"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <span className="rounded bg-navy/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-navy/70">
-                  [{i + 1}] {SOURCE_LABELS[c.source] || c.source}
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  {Math.round(c.confidence * 100)}%
-                </span>
-              </div>
-              <h3 className="text-sm font-semibold text-navy">{c.title}</h3>
-              {c.law_reference && (
-                <p className="mt-0.5 font-mono text-xs text-gold">{c.law_reference}</p>
-              )}
-              <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-600">
-                {c.excerpt}
-              </p>
-              {c.source_url && (
-                <a
-                  href={c.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-navy hover:text-gold"
-                >
-                  Original öffnen <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </article>
-          ))
+          [...citations]
+            .sort((a, b) => (a.ref_number || 0) - (b.ref_number || 0))
+            .map((c, i) => (
+              <article
+                key={`${c.ref_number || i + 1}-${c.title}-${i}`}
+                className="animate-fade-up rounded-xl border border-navy/8 bg-white p-3 shadow-sm"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gold text-[10px] font-bold text-navy">
+                      {c.ref_number || i + 1}
+                    </span>
+                    <span className="rounded bg-navy/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-navy/70">
+                      {SOURCE_LABELS[c.source] || c.source}
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-slate-400">
+                    {Math.round(c.confidence * 100)}%
+                  </span>
+                </div>
+
+                {c.law_reference ? (
+                  <h3 className="font-mono text-sm font-bold text-gold">{c.law_reference}</h3>
+                ) : (
+                  <h3 className="text-sm font-semibold text-navy">{c.title}</h3>
+                )}
+
+                {c.law_reference && c.title && c.title !== c.law_reference && (
+                  <p className="mt-0.5 text-xs text-slate-500">{c.title}</p>
+                )}
+
+                <blockquote className="mt-2 rounded-lg border-l-2 border-gold/40 bg-cream/80 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  {c.excerpt}
+                </blockquote>
+
+                {c.source_url && (
+                  <a
+                    href={c.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-navy hover:text-gold"
+                  >
+                    Original öffnen <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </article>
+            ))
         )}
       </div>
 

@@ -1,12 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, MessageSquare, Send } from "lucide-react";
-import { sendChat } from "@/lib/api";
+import { getChatSession, sendChat } from "@/lib/api";
 import type { ChatMessage, LegalForm } from "@/lib/types";
+import { AssistantMessage } from "@/components/AssistantMessage";
 
 interface ChatPanelProps {
   userId: string;
+  sessionId: string | null;
+  onSessionIdChange: (sessionId: string) => void;
   onResponse: (msg: ChatMessage) => void;
   onFormSuggest: (forms: LegalForm[]) => void;
 }
@@ -17,16 +20,52 @@ const STARTERS = [
   "Kann ich gegen eine Kündigung Widerspruch einlegen?",
 ];
 
-export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps) {
+export function ChatPanel({
+  userId,
+  sessionId,
+  onSessionIdChange,
+  onResponse,
+  onFormSuggest,
+}: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const onResponseRef = useRef(onResponse);
+  onResponseRef.current = onResponse;
 
-  const scrollDown = () => {
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-  };
+  useEffect(() => {
+    if (!sessionId) {
+      setMessages([]);
+      setFollowUps([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSession(true);
+
+    getChatSession(sessionId, userId)
+      .then((session) => {
+        if (cancelled) return;
+        setMessages(session.messages);
+        setFollowUps([]);
+        const lastAssistant = [...session.messages]
+          .reverse()
+          .find((m) => m.role === "assistant");
+        if (lastAssistant) onResponseRef.current(lastAssistant);
+      })
+      .catch(() => {
+        if (!cancelled) setMessages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSession(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, userId]);
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? input).trim();
@@ -36,11 +75,14 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
     const userMsg: ChatMessage = { role: "user", content: msg };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
-    scrollDown();
 
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const res = await sendChat(msg, userId, history);
+      const res = await sendChat(msg, userId, history, sessionId);
+
+      if (res.session_id && res.session_id !== sessionId) {
+        onSessionIdChange(res.session_id);
+      }
 
       const assistantMsg: ChatMessage = {
         role: "assistant",
@@ -61,7 +103,6 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
       setMessages((prev) => [...prev, errMsg]);
     } finally {
       setLoading(false);
-      scrollDown();
     }
   };
 
@@ -78,7 +119,12 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {messages.length === 0 && (
+        {loadingSession ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Chat wird geladen...
+          </div>
+        ) : messages.length === 0 ? (
           <div className="space-y-4 py-8 text-center">
             <p className="font-serif text-lg text-navy">
               Wie kann ich Ihnen helfen?
@@ -99,29 +145,35 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
               ))}
             </div>
           </div>
-        )}
-
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-          >
+        ) : (
+          messages.map((m, i) => (
             <div
-              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                m.role === "user"
-                  ? "bg-navy text-white"
-                  : "border border-navy/8 bg-white text-navy shadow-sm"
-              }`}
+              key={i}
+              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              <div className="prose-legal whitespace-pre-wrap">{m.content}</div>
-              {m.citations && m.citations.length > 0 && (
-                <p className="mt-2 border-t border-navy/10 pt-2 text-[10px] text-slate-400">
-                  {m.citations.length} Quelle(n) verwendet — siehe Panel rechts
-                </p>
-              )}
+              <div
+                className={`max-w-[90%] rounded-2xl px-4 py-3.5 text-sm leading-relaxed ${
+                  m.role === "user"
+                    ? "bg-navy text-white"
+                    : "border border-navy/8 bg-white text-navy shadow-sm"
+                }`}
+              >
+                {m.role === "assistant" ? (
+                  <div className="prose-legal">
+                    <AssistantMessage content={m.content} citations={m.citations} />
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{m.content}</p>
+                )}
+                {m.citations && m.citations.length > 0 && (
+                  <p className="mt-2 border-t border-navy/10 pt-2 text-[10px] text-slate-400">
+                    {m.citations.length} Quelle(n) — siehe Panel rechts
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
 
         {loading && (
           <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -129,7 +181,6 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
             Durchsuche Wissensgraph...
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
       {followUps.length > 0 && (
@@ -159,11 +210,11 @@ export function ChatPanel({ userId, onResponse, onFormSuggest }: ChatPanelProps)
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ihre Rechtsfrage stellen..."
             className="flex-1 rounded-xl border border-navy/15 bg-white px-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2"
-            disabled={loading}
+            disabled={loading || loadingSession}
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={loading || loadingSession || !input.trim()}
             className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
           >
             <Send className="h-4 w-4" />

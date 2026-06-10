@@ -23,6 +23,7 @@ export interface Citation {
   law_reference: string;
   episode_id: string;
   confidence: number;
+  ref_number: number;
 }
 
 export interface FormField {
@@ -52,6 +53,22 @@ export interface ChatMessage {
   citations?: Citation[];
   transparency_note?: string;
   suggested_forms?: LegalForm[];
+}
+
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ChatSession {
+  id: string;
+  user_id: string;
+  title: string;
+  messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SourceInfo {

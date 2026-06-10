@@ -40,9 +40,17 @@ body {
   border: 1px solid rgba(12, 26, 46, 0.08);
 }
 
-.prose-legal p {
-  margin-bottom: 0.75rem;
+.prose-legal {
+  font-size: 0.875rem;
   line-height: 1.7;
+}
+
+.prose-legal > *:first-child {
+  margin-top: 0;
+}
+
+.prose-legal > *:last-child {
+  margin-bottom: 0;
 }
 
 @keyframes fade-up {

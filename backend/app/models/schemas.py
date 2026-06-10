@@ -49,6 +49,7 @@ class Citation(BaseModel):
     law_reference: str = ""
     episode_id: str = ""
     confidence: float = Field(ge=0, le=1, default=0.8)
+    ref_number: int = 0
 
 
 class ChatMessage(BaseModel):
@@ -56,9 +57,38 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class StoredChatMessage(BaseModel):
+    role: str
+    content: str
+    citations: list[Citation] = Field(default_factory=list)
+    transparency_note: str = ""
+    suggested_forms: list["LegalForm"] = Field(default_factory=list)
+
+
+class ChatSession(BaseModel):
+    id: str
+    user_id: str
+    title: str = "Neuer Chat"
+    messages: list[StoredChatMessage] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ChatSessionSummary(BaseModel):
+    id: str
+    title: str
+    updated_at: datetime
+    message_count: int
+
+
+class CreateChatSessionRequest(BaseModel):
+    user_id: str = "default"
+
+
 class ChatRequest(BaseModel):
     message: str
     user_id: str = "default"
+    session_id: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
 
 
@@ -89,6 +119,7 @@ class ChatResponse(BaseModel):
     suggested_forms: list[LegalForm] = Field(default_factory=list)
     follow_up_questions: list[str] = Field(default_factory=list)
     transparency_note: str = ""
+    session_id: str = ""
 
 
 class IngestRequest(BaseModel):

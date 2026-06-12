@@ -137,21 +137,32 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
         suggested_forms = suggest_forms_for_query(profile.legal_topic, profile)
 
     follow_ups: list[str] = []
-    if answer_style == AnswerStyle.GUTACHTEN:
-        follow_ups = [
-            "Welche weiteren Tatbestandsmerkmale sind streitig?",
-            "Welche Ausnahmen oder Verjährungsfristen gelten?",
-        ]
-    elif "miet" in request.message.lower():
-        follow_ups = [
-            "Welche Fristen gelten für einen Widerspruch?",
-            "Brauche ich einen Anwalt für diesen Fall?",
-        ]
-    elif "datenschutz" in request.message.lower() or "dsgvo" in request.message.lower():
-        follow_ups = [
-            "Wie lange hat das Unternehmen Zeit zu antworten?",
-            "Was tun bei fehlender Antwort?",
-        ]
+    follow_ups_marker = "### Mögliche Anschlussfragen:"
+    if follow_ups_marker in answer:
+        parts = answer.split(follow_ups_marker)
+        answer = parts[0].strip()
+        follow_ups_text = parts[1].strip()
+        for line in follow_ups_text.splitlines():
+            clean_line = line.strip().lstrip("-*1234567890. ")
+            if clean_line:
+                follow_ups.append(clean_line)
+
+    if not follow_ups:
+        if answer_style == AnswerStyle.GUTACHTEN:
+            follow_ups = [
+                "Welche weiteren Tatbestandsmerkmale sind streitig?",
+                "Welche Ausnahmen oder Verjährungsfristen gelten?",
+            ]
+        elif "miet" in request.message.lower():
+            follow_ups = [
+                "Welche Fristen gelten für einen Widerspruch?",
+                "Brauche ich einen Anwalt für diesen Fall?",
+            ]
+        elif "datenschutz" in request.message.lower() or "dsgvo" in request.message.lower():
+            follow_ups = [
+                "Wie lange hat das Unternehmen Zeit zu antworten?",
+                "Was tun bei fehlender Antwort?",
+            ]
 
     style_label = (
         "Gutachtenstil (Obersatz–Definition–Subsumtion–Ergebnis)"

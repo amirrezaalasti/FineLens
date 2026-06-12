@@ -30,6 +30,21 @@ _DOMAIN_MARKERS: dict[str, frozenset[str]] = {
     "handelsrecht": frozenset(
         {"kaufmann", "handelsregister", "hgb", "firma", "prokura"}
     ),
+    "verkehrsrecht": frozenset(
+        {
+            "geschwindigkeit", "geschwindigkeitsüberschreitung", "geschwindigkeitsverstoß",
+            "verkehrsordnungswidrigkeit", "bußgeld", "bußgeldbescheid", "geldbuße",
+            "blitzer", "einspruch", "ordnungswidrigkeit", "fahrverbot", "flensburg",
+            "straßenverkehr", "fahrzeugführer", "innerorts", "messprotokoll",
+            "höchstgeschwindigkeit", "verkehrsverstoß", "punkt", "fahrerlaubnis",
+        }
+    ),
+    "stvg_dokumente": frozenset(
+        {
+            "kennzeichen", "fahrzeugpapier", "dokument", "zulassung", "verlust",
+            "fahrzeugschein", "fahrzeugbrief", "kennzeichenverlust",
+        }
+    ),
 }
 
 # Paragraph ranges strongly associated with a domain (BGB) — used as secondary signal.
@@ -100,6 +115,11 @@ def _domain_mismatch_factor(query_tokens: set[str], hit: dict[str, Any]) -> floa
         if hit_in_domain and not query_in_domain:
             factor *= 0.2
 
+    # Penalize StVG document/admin norms when query is about traffic offenses
+    if any(m in query_blob for m in _DOMAIN_MARKERS["verkehrsrecht"]):
+        if any(m in hit_lower for m in _DOMAIN_MARKERS["stvg_dokumente"]):
+            factor *= 0.05
+
     for match in _PARA_REF_RE.finditer(hit.get("law_reference", "") + " " + hit.get("title", "")):
         para = int(match.group(1))
         for start, end, domain in _PARAGRAPH_DOMAIN:
@@ -158,32 +178,41 @@ def _specificity_bonus(
     return min(bonus / max(len(query_tokens), 1), 1.0)
 
 
+def _norm_law_code(text: str) -> str:
+    return text.upper().replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
+
+
+def _parse_norm_ref(norm: str) -> tuple[str, str] | None:
+    match = re.search(r"§\s*(\d+[a-z]?)\s*([A-ZÄÖÜ]{2,10})", norm, re.I)
+    if match:
+        return match.group(1).lower(), _norm_law_code(match.group(2))
+    return None
+
+
 def _norm_candidate_bonus(
     hit: dict[str, Any],
     norm_candidates: list[str],
 ) -> float:
-    """Boost hits that reference norms predicted by the query rewriter.
-
-    If the LLM predicted "§ 961 BGB" as relevant and a hit mentions that
-    exact norm, give it a strong boost.
-    """
+    """Boost hits that reference norms predicted by the query rewriter."""
     if not norm_candidates:
         return 0.0
 
     hit_text_lower = _hit_text(hit)
+    hit_ref = hit.get("law_reference", "")
+    hit_parsed = _parse_norm_ref(hit_ref) or _parse_norm_ref(hit_text_lower)
+
     bonus = 0.0
     for norm in norm_candidates:
-        # Normalize the norm reference for matching
-        norm_lower = norm.lower().replace("§", "").strip()
-        # Extract just the paragraph number for fuzzy matching
-        norm_match = re.search(r"(\d+[a-z]?)", norm_lower)
-        if norm_match:
-            para = norm_match.group(1)
-            # Check if this paragraph appears in the hit
-            if re.search(rf"§\s*{re.escape(para)}\b", hit_text_lower):
-                bonus += 0.5
-            elif para in hit_text_lower:
-                bonus += 0.25
+        parsed = _parse_norm_ref(norm)
+        if not parsed:
+            continue
+        para, code = parsed
+        if hit_parsed and hit_parsed == parsed:
+            bonus += 0.8
+        elif re.search(rf"§\s*{re.escape(para)}\b", hit_text_lower):
+            norm_code_match = re.search(rf"§\s*{re.escape(para)}\s*([A-ZÄÖÜ]{{2,10}})", hit_text_lower, re.I)
+            if norm_code_match and _norm_law_code(norm_code_match.group(1)) == code:
+                bonus += 0.6
 
     return min(bonus, 1.0)
 

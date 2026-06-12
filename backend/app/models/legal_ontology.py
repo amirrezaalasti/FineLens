@@ -112,11 +112,4 @@ LEGAL_EDGE_TYPE_MAP: dict[tuple[str, str], list[str]] = {
     ("Entity", "Entity"): ["REFERENCES", "REQUIRES", "IMPLIES", "APPLIES_TO"],
 }
 
-LEGAL_EXCLUDED_ENTITY_TYPES = [
-    "Person",
-    "Organization",
-    "Topic",
-    "Event",
-    "Location",
-    "Company",
-]
+LEGAL_EXCLUDED_ENTITY_TYPES: list[str] = []

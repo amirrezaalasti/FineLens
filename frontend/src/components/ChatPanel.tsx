@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File } from "lucide-react";
 import { getChatSession, sendChat, uploadFile } from "@/lib/api";
+import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
 
@@ -12,13 +13,10 @@ interface ChatPanelProps {
   onSessionIdChange: (sessionId: string) => void;
   onResponse: (msg: ChatMessage) => void;
   onFormSuggest: (forms: LegalForm[]) => void;
+  onOpenFormsTab?: () => void;
 }
 
-const STARTERS = [
-  "Was sind meine Rechte bei einer Mieterhöhung?",
-  "Wie stelle ich eine DSGVO-Auskunftsanfrage?",
-  "Kann ich gegen eine Kündigung Widerspruch einlegen?",
-];
+const STARTERS_KEY = "chat.starters";
 
 export function ChatPanel({
   userId,
@@ -26,7 +24,10 @@ export function ChatPanel({
   onSessionIdChange,
   onResponse,
   onFormSuggest,
+  onOpenFormsTab,
 }: ChatPanelProps) {
+  const { t, tArray, locale, speechLocale } = useTranslation();
+  const starters = tArray(STARTERS_KEY);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -64,7 +65,10 @@ export function ChatPanel({
         newAttachments.push(att);
       } catch (err) {
         console.error("Failed to upload file:", err);
-        alert(`Fehler beim Hochladen von ${files[i].name}: ${err instanceof Error ? err.message : "Unbekannter Fehler"}`);
+        alert(t("chat.uploadError", {
+          fileName: files[i].name,
+          error: err instanceof Error ? err.message : t("chat.unknownError"),
+        }));
       }
     }
 
@@ -145,20 +149,13 @@ export function ChatPanel({
         const recognition = new SpeechRecognition();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = "de-DE";
+        recognition.lang = speechLocale;
 
         // Timeout to detect if the browser fails to start the microphone silently
         const startTimeout = setTimeout(() => {
           if (isListeningRef.current && recognitionRef.current === recognition) {
             console.warn("Speech recognition did not start within 3 seconds. Possible device or permission block.");
-            alert(
-              "Die Spracherkennung reagiert nicht (Mikrofon startet nicht).\n\n" +
-              "Bitte prüfen Sie:\n" +
-              "1. Ist Ihr Mikrofon angeschlossen und aktiv?\n" +
-              "2. Haben Sie in den Windows-Datenschutzeinstellungen den Mikrofonzugriff für Apps erlaubt?\n" +
-              "3. Erlaubt Chrome/Edge der Webseite den Zugriff auf das Mikrofon?\n" +
-              "4. Verwenden Sie ein Ad-Blocker/Privacy-Plugin (z.B. uBlock), das die Verbindung zu den Google-Sprachdiensten blockiert?"
-            );
+            alert(t("chat.speechTimeout"));
             try {
               recognition.stop();
             } catch (e) {}
@@ -199,11 +196,11 @@ export function ChatPanel({
           console.error("Speech recognition error:", event.error);
           clearTimeout(startTimeout);
           if (event.error === "not-allowed") {
-            alert("Mikrofon-Zugriff verweigert oder blockiert. Bitte erlauben Sie den Mikrofon-Zugriff in Ihren Browsereinstellungen.\n\nHinweis: Chrome erlaubt Spracheingabe nur auf sicheren Seiten (localhost oder https).");
+            alert(t("chat.micDenied"));
           } else if (event.error === "no-speech") {
             console.log("No speech detected.");
           } else {
-            alert(`Fehler bei der Spracherkennung: ${event.error}`);
+            alert(t("chat.speechError", { error: event.error }));
           }
           isListeningRef.current = false;
           setIsListening(false);
@@ -286,7 +283,7 @@ export function ChatPanel({
         content: m.content,
         attachments: m.attachments,
       }));
-      const res = await sendChat(msg, userId, history, sessionId, attsToSend);
+      const res = await sendChat(msg, userId, history, sessionId, attsToSend, locale);
 
       if (res.session_id && res.session_id !== sessionId) {
         onSessionIdChange(res.session_id);
@@ -306,7 +303,9 @@ export function ChatPanel({
     } catch (err) {
       const errMsg: ChatMessage = {
         role: "assistant",
-        content: `Es ist ein Fehler aufgetreten. Bitte prüfen Sie:\n• Backend läuft auf Port 8000\n• OPENAI_API_KEY ist in .env gesetzt\n• FalkorDB läuft (docker compose up -d)\n• Frontend-Port ist in CORS_ORIGINS erlaubt\n\n${err instanceof Error ? err.message : ""}`,
+        content: t("chat.apiError", {
+          details: err instanceof Error ? err.message : "",
+        }),
       };
       setMessages((prev) => [...prev, errMsg]);
     } finally {
@@ -319,10 +318,10 @@ export function ChatPanel({
       <div className="border-b border-navy/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-gold" />
-          <h2 className="font-semibold text-navy">Rechtsberatung</h2>
+          <h2 className="font-semibold text-navy">{t("chat.title")}</h2>
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Fragen Sie auf Deutsch — Antworten mit Quellennachweisen
+          {t("chat.subtitle")}
         </p>
       </div>
 
@@ -330,19 +329,18 @@ export function ChatPanel({
         {loadingSession ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Chat wird geladen...
+            {t("chat.loadingSession")}
           </div>
         ) : messages.length === 0 ? (
           <div className="space-y-4 py-8 text-center">
             <p className="font-serif text-lg text-navy">
-              Wie kann ich Ihnen helfen?
+              {t("chat.emptyTitle")}
             </p>
             <p className="mx-auto max-w-md text-sm text-slate-500">
-              FineLens durchsucht deutsche Rechtsquellen über einen Graphiti
-              Knowledge Graph und zeigt Ihnen transparent, woher jede Information stammt.
+              {t("chat.emptyDescription")}
             </p>
             <div className="flex flex-wrap justify-center gap-2 pt-2">
-              {STARTERS.map((s) => (
+              {starters.map((s) => (
                 <button
                   key={s}
                   onClick={() => handleSend(s)}
@@ -369,6 +367,34 @@ export function ChatPanel({
                 {m.role === "assistant" ? (
                   <div className="prose-legal">
                     <AssistantMessage content={m.content} citations={m.citations} />
+                    {m.suggested_forms && m.suggested_forms.length > 0 && (
+                      <div className="mt-3 border-t border-navy/10 pt-3">
+                        <p className="mb-2 text-xs font-semibold text-navy/70">
+                          {t("chat.matchingForms")}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {m.suggested_forms.map((form) => (
+                            <button
+                              key={form.id}
+                              type="button"
+                              onClick={() => {
+                                const others = (m.suggested_forms || []).filter(
+                                  (s) => s.id !== form.id
+                                );
+                                onFormSuggest([form, ...others]);
+                                onOpenFormsTab?.();
+                              }}
+                              className="rounded-lg border border-gold/40 bg-gold/10 px-2.5 py-1.5 text-left text-xs text-navy transition hover:bg-gold/20"
+                            >
+                              <span className="font-medium">{form.title}</span>
+                              <span className="mt-0.5 block text-[10px] text-slate-500">
+                                {form.legal_basis.join(" · ")}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div>
@@ -398,7 +424,7 @@ export function ChatPanel({
                 )}
                 {m.citations && m.citations.length > 0 && (
                   <p className="mt-2 border-t border-navy/10 pt-2 text-[10px] text-slate-400">
-                    {m.citations.length} Quelle(n) — siehe Panel rechts
+                    {t("chat.citationsCount", { count: m.citations.length })}
                   </p>
                 )}
               </div>
@@ -409,7 +435,7 @@ export function ChatPanel({
         {loading && (
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Durchsuche Wissensgraph...
+            {t("chat.searching")}
           </div>
         )}
       </div>
@@ -451,7 +477,7 @@ export function ChatPanel({
                   type="button"
                   onClick={() => removeAttachment(idx)}
                   className="rounded-full p-0.5 hover:bg-navy/10 text-slate-400 hover:text-navy transition cursor-pointer"
-                  title="Entfernen"
+                  title={t("common.remove")}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -464,7 +490,7 @@ export function ChatPanel({
         {uploading && (
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
-            <span>Datei wird verarbeitet...</span>
+            <span>{t("chat.processingFile")}</span>
           </div>
         )}
 
@@ -479,7 +505,7 @@ export function ChatPanel({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={isListening ? "Zuhören..." : "Ihre Rechtsfrage stellen..."}
+              placeholder={isListening ? t("chat.listening") : t("chat.placeholder")}
               className={`w-full rounded-xl border border-navy/15 bg-white pl-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75 ${
                 isSpeechSupported ? "pr-20" : "pr-12"
               }`}
@@ -492,7 +518,7 @@ export function ChatPanel({
                 onClick={triggerFileInput}
                 disabled={loading || loadingSession || uploading}
                 className="text-slate-400 hover:text-navy hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
-                title="Datei hochladen (PDF, Bild, Text)"
+                title={t("chat.uploadFile")}
               >
                 <Paperclip className="h-4 w-4" />
               </button>
@@ -516,7 +542,7 @@ export function ChatPanel({
                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
                       : "text-slate-400 hover:text-navy hover:bg-slate-100"
                   }`}
-                  title={isListening ? "Zuhören stoppen" : "Spracheingabe starten"}
+                  title={isListening ? t("chat.stopSpeech") : t("chat.startSpeech")}
                 >
                   {isListening ? (
                     <MicOff className="h-4 w-4" />
@@ -533,7 +559,7 @@ export function ChatPanel({
             className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
-            <span className="hidden sm:inline">Senden</span>
+            <span className="hidden sm:inline">{t("common.send")}</span>
           </button>
         </form>
       </div>

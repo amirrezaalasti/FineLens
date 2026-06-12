@@ -30,7 +30,8 @@ export async function sendChat(
   userId: string,
   history: { role: string; content: string; attachments?: Attachment[] }[],
   sessionId?: string | null,
-  attachments?: Attachment[]
+  attachments?: Attachment[],
+  language?: string
 ) {
   return request<{
     answer: string;
@@ -47,6 +48,7 @@ export async function sendChat(
       history,
       session_id: sessionId || null,
       attachments: attachments || [],
+      language: language || null,
     }),
   });
 }
@@ -99,12 +101,14 @@ export async function saveProfile(profile: UserProfile) {
   });
 }
 
-export async function getForms(userId: string) {
-  return request<LegalForm[]>(`/forms?user_id=${userId}`);
+export async function getForms(userId: string, language?: string) {
+  const langParam = language ? `&language=${language}` : "";
+  return request<LegalForm[]>(`/forms?user_id=${userId}${langParam}`);
 }
 
-export async function getForm(formId: string, userId: string) {
-  return request<LegalForm>(`/forms/${formId}?user_id=${userId}`);
+export async function getForm(formId: string, userId: string, language?: string) {
+  const langParam = language ? `&language=${language}` : "";
+  return request<LegalForm>(`/forms/${formId}?user_id=${userId}${langParam}`);
 }
 
 export async function getHealth() {

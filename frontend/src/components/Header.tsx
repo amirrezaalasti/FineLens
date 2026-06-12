@@ -1,6 +1,8 @@
 "use client";
 
 import { Scale, Sparkles } from "lucide-react";
+import { useTranslation } from "@/i18n";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type Tab = "chat" | "profile" | "forms" | "sources";
 
@@ -10,14 +12,11 @@ interface HeaderProps {
   graphConnected: boolean | null;
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "chat", label: "Beratung" },
-  { id: "profile", label: "Mein Profil" },
-  { id: "forms", label: "Formulare" },
-  { id: "sources", label: "Quellen" },
-];
+const TAB_IDS: Tab[] = ["chat", "profile", "forms", "sources"];
 
 export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) {
+  const { t } = useTranslation();
+
   return (
     <header className="z-50 shrink-0 border-b border-navy/10 bg-navy text-white shadow-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
@@ -29,34 +28,33 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
             <h1 className="font-serif text-xl font-semibold tracking-tight">
               Fine<span className="text-gold-light">Lens</span>
             </h1>
-            <p className="hidden text-xs text-white/60 sm:block">
-              Graph-Enhanced Legal Intelligence
-            </p>
+            <p className="hidden text-xs text-white/60 sm:block">{t("header.tagline")}</p>
           </div>
         </div>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {TABS.map((tab) => (
+          {TAB_IDS.map((tab) => (
             <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
+              key={tab}
+              onClick={() => onTabChange(tab)}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab.id
+                activeTab === tab
                   ? "bg-gold text-navy"
                   : "text-white/70 hover:bg-white/10 hover:text-white"
               }`}
             >
-              {tab.label}
+              {t(`header.tabs.${tab}`)}
             </button>
           ))}
         </nav>
 
         <div className="flex items-center gap-2">
+          <LanguageSwitcher />
           <a
             href="/demo"
             className="hidden rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-gold/40 hover:text-gold-light sm:inline"
           >
-            Demo
+            {t("common.demo")}
           </a>
           {graphConnected !== null && (
             <span
@@ -71,7 +69,8 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
                   graphConnected ? "bg-green-400" : "bg-amber-400"
                 }`}
               />
-              Graph {graphConnected ? "verbunden" : "offline"}
+              {t("header.graphLabel")}{" "}
+              {graphConnected ? t("header.graphConnected") : t("header.graphOffline")}
             </span>
           )}
           <Sparkles className="h-4 w-4 text-gold-light md:hidden" />
@@ -79,15 +78,15 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-t border-white/10 px-4 py-2 md:hidden">
-        {TABS.map((tab) => (
+        {TAB_IDS.map((tab) => (
           <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
+            key={tab}
+            onClick={() => onTabChange(tab)}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
-              activeTab === tab.id ? "bg-gold text-navy" : "text-white/70"
+              activeTab === tab ? "bg-gold text-navy" : "text-white/70"
             }`}
           >
-            {tab.label}
+            {t(`header.tabs.${tab}`)}
           </button>
         ))}
       </nav>

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     # embedded = FalkorDB Lite (no Docker), falkordb = Docker/server, neo4j = Neo4j
-    graph_backend: str = "embedded"
+    graph_backend: str = "falkordb"
     falkordb_host: str = "localhost"
     falkordb_port: int = 6380
     embedded_db_path: str = "data/graphiti.db"

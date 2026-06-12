@@ -45,6 +45,7 @@ export interface LegalForm {
   source_url: string;
   fields: FormField[];
   legal_basis: string[];
+  body_template?: string;
 }
 
 export interface Attachment {

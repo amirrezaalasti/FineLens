@@ -15,6 +15,7 @@ import {
   getHealth,
   listChatSessions,
 } from "@/lib/api";
+import { useTranslation } from "@/i18n";
 import type { ChatMessage, ChatSessionSummary, Citation, LegalForm } from "@/lib/types";
 
 type Tab = "chat" | "profile" | "forms" | "sources";
@@ -23,10 +24,21 @@ const USER_ID = "default";
 const SESSION_STORAGE_KEY = `finelens-active-session-${USER_ID}`;
 
 export default function Home() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("chat");
   const [citations, setCitations] = useState<Citation[]>([]);
   const [transparencyNote, setTransparencyNote] = useState("");
   const [suggestedForms, setSuggestedForms] = useState<LegalForm[]>([]);
+  const handleFormSuggest = useCallback((forms: LegalForm[]) => {
+    const seen = new Set<string>();
+    setSuggestedForms(
+      forms.filter((f) => {
+        if (seen.has(f.id)) return false;
+        seen.add(f.id);
+        return true;
+      })
+    );
+  }, []);
   const [graphConnected, setGraphConnected] = useState<boolean | null>(null);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -149,7 +161,8 @@ export default function Home() {
                   sessionId={activeSessionId}
                   onSessionIdChange={handleSessionIdChange}
                   onResponse={handleResponse}
-                  onFormSuggest={setSuggestedForms}
+                  onFormSuggest={handleFormSuggest}
+                  onOpenFormsTab={() => setTab("forms")}
                 />
               }
               citations={
@@ -177,8 +190,7 @@ export default function Home() {
       </main>
 
       <footer className="shrink-0 border-t border-navy/10 bg-navy/5 py-2 text-center text-xs text-slate-500">
-        FineLens · Keine Rechtsberatung · Daten: Open Legal Data, Gesetze im Internet,
-        recht.bund.de · Engine:{" "}
+        FineLens · {t("footer.disclaimer")} · {t("footer.dataSources")} · {t("footer.engine")}{" "}
         <a
           href="https://github.com/getzep/graphiti"
           className="text-navy hover:text-gold"

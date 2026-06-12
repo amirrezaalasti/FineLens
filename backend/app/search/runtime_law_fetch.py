@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any
 
-from app.ingestion.buzer import fetch_law_paragraph
+from app.ingestion.statute_fetch import fetch_statute_paragraph
 from app.ingestion.oldp import _guess_book_code, fetch_law, search_laws
 from app.models.schemas import LegalSource
 from app.search.legal_query_analysis import QueryAnalysis
@@ -118,19 +118,19 @@ async def fetch_predicted_norms(
                 seen.add(key)
                 expanded_targets.append((neighbor_para, neighbor_code))
 
-    # Fetch from buzer.de
+    # Fetch explicit norms first (highest priority), then neighbors if room remains
     hits: list[dict[str, Any]] = []
-    for para, law_code in expanded_targets[:limit]:
+    for para, law_code in targets[:limit]:
         try:
-            title, content, url = await fetch_law_paragraph(para, law_code)
+            title, content, url, source_name = await fetch_statute_paragraph(para, law_code)
             if not content or len(content.strip()) < 20:
                 continue
 
-            reference = f"§ {para} {law_code}"
+            reference = f"§ {para} {law_code.upper()}"
             hits.append({
                 "fact": content,
                 "source_url": url,
-                "source": LegalSource.BUZER.value,
+                "source": source_name,
                 "title": title or reference,
                 "law_reference": reference,
                 "episode_id": "",
@@ -143,6 +143,38 @@ async def fetch_predicted_norms(
             logger.info("Fetched predicted norm: %s → %d chars", reference, len(content))
         except Exception as exc:
             logger.debug("Failed to fetch predicted norm § %s %s: %s", para, law_code, exc)
+            continue
+
+    if len(hits) >= limit:
+        return hits[:limit]
+
+    neighbor_targets = [
+        (para, code)
+        for para, code in expanded_targets
+        if (para, code) not in targets
+    ]
+    for para, law_code in neighbor_targets[: limit - len(hits)]:
+        try:
+            title, content, url, source_name = await fetch_statute_paragraph(para, law_code)
+            if not content or len(content.strip()) < 20:
+                continue
+
+            reference = f"§ {para} {law_code.upper()}"
+            hits.append({
+                "fact": content,
+                "source_url": url,
+                "source": source_name,
+                "title": title or reference,
+                "law_reference": reference,
+                "episode_id": "",
+                "score": 0.88,
+                "uuid": f"predicted-neighbor-{reference}",
+                "_runtime": True,
+                "_predicted": True,
+                "_overlap": 0.5,
+            })
+        except Exception as exc:
+            logger.debug("Failed to fetch neighbor norm § %s %s: %s", para, law_code, exc)
             continue
 
     return hits
@@ -220,14 +252,13 @@ async def fetch_runtime_norms(
                 continue
             seen_refs.add(reference)
             try:
-                buzer_title, buzer_content, buzer_url = await fetch_law_paragraph(para, law_code)
-                if buzer_content:
-                    title = buzer_title or title
-                    content = buzer_content
-                    source_url = buzer_url
-                    source = LegalSource.BUZER.value
-                else:
-                    source = LegalSource.OPEN_LEGAL_DATA.value
+                fetched_title, fetched_content, fetched_url, source = await fetch_statute_paragraph(
+                    para, law_code
+                )
+                if fetched_content:
+                    title = fetched_title or title
+                    content = fetched_content
+                    source_url = fetched_url
             except Exception:
                 source = LegalSource.OPEN_LEGAL_DATA.value
         else:

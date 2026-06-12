@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "@/i18n";
 import type { Citation } from "@/lib/types";
 
 interface AssistantMessageProps {
@@ -16,8 +17,12 @@ function CitationRef({
   num: number;
   citations?: Citation[];
 }) {
+  const { t } = useTranslation();
   const citation = citations?.find((c) => c.ref_number === num);
-  const label = citation?.law_reference || citation?.title || `Quelle ${num}`;
+  const label =
+    citation?.law_reference ||
+    citation?.title ||
+    t("citations.sourceFallback", { num });
 
   return (
     <sup

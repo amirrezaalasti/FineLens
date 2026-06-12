@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, Source_Serif_4 } from "next/font/google";
+import { I18nProvider } from "@/i18n";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -26,8 +27,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" className={`${dmSans.variable} ${sourceSerif.variable} h-full antialiased`}>
-      <body className="flex h-full flex-col overflow-hidden">{children}</body>
+    <html
+      lang="de"
+      className={`${dmSans.variable} ${sourceSerif.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <body
+        className="flex h-full flex-col overflow-hidden"
+        suppressHydrationWarning
+      >
+        <I18nProvider>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

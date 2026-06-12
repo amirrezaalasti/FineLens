@@ -5,6 +5,7 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.graphiti_client import add_user_episode, search_legal_context
 from app.models.schemas import (
+    Attachment,
     ChatRequest,
     ChatResponse,
     Citation,
@@ -14,7 +15,10 @@ from app.models.schemas import (
 )
 from app.search.query_rewriter import rewrite_query
 from app.services.chat_store import append_messages, get_or_create_session
-from app.services.form_templates import suggest_forms_for_query
+from app.services.form_templates import (
+    format_forms_section,
+    suggest_forms_for_context,
+)
 from app.services.law_text import enrich_citations
 from app.services.query_router import (
     GUTACHTEN_SYSTEM_PROMPT,
@@ -30,10 +34,89 @@ def _extract_cited_indices(text: str) -> set[int]:
     return {int(m) for m in re.findall(r"\[(\d+)\]", text)}
 
 
+def _build_search_query(message: str, attachments: list[Attachment]) -> str:
+    """Include uploaded document text so retrieval/rewriter see the full case."""
+    parts = [message.strip()] if message.strip() else []
+    for att in attachments:
+        if att.content:
+            parts.append(f"--- {att.name} ---\n{att.content[:4000]}")
+    return "\n\n".join(parts)
+
+
+_EMPTY_DOC_RE = re.compile(
+    r"\[(?:Leeres|leeres).*(?:PDF|pdf).*(?:extrahiert|extracted).*\]",
+    re.I,
+)
+
+_FINE_DOC_HINTS = re.compile(
+    r"\b(bußgeld|bussgeld|fine|geschwindigkeit|speeding|owi|verkehr|traffic|strafzettel)\b",
+    re.I,
+)
+
+_DEFAULT_FINE_NORMS = [
+    "§ 24 StVG",
+    "§ 24a StVG",
+    "§ 49 StVG",
+    "§ 67 OWiG",
+    "§ 26 StVG",
+]
+
+
+def _infer_norms_from_attachments(message: str, attachments: list[Attachment]) -> list[str]:
+    """When document text is missing, infer likely norms from filename and message."""
+    blob = message.lower()
+    for att in attachments:
+        blob += f" {att.name.lower()} {(att.content or '')[:500].lower()}"
+
+    if _EMPTY_DOC_RE.search(blob) or (
+        attachments and all(len(a.content or "") < 80 for a in attachments)
+    ):
+        if _FINE_DOC_HINTS.search(blob):
+            return list(_DEFAULT_FINE_NORMS)
+    return []
+
+
+def _detect_response_language(message: str) -> str:
+    german_markers = re.search(
+        r"\b(erkläre|erklär|dokument|bitte|was|wie|bescheid|sachverhalt|recht)\b",
+        message,
+        re.I,
+    )
+    english_markers = re.search(
+        r"\b(explain|document|please|what|how|objection|fine|ticket)\b",
+        message,
+        re.I,
+    )
+    if english_markers and not german_markers:
+        return "en"
+    return "de"
+
+
+def _resolve_language(request: ChatRequest, profile) -> str:
+    if request.language in ("de", "en"):
+        return request.language
+    pref = getattr(profile, "preferred_language", None)
+    if pref in ("de", "en"):
+        return pref
+    return _detect_response_language(request.message)
+
+
+def _insert_forms_section(answer: str, forms_section: str) -> str:
+    """Insert form suggestions before follow-up questions, or at the end."""
+    marker = "### Mögliche Anschlussfragen:"
+    en_marker = "### Possible follow-up questions:"
+    for m in (marker, en_marker):
+        if m in answer:
+            parts = answer.split(m, 1)
+            return f"{parts[0].rstrip()}\n\n{forms_section}\n\n{m}{parts[1]}"
+    return f"{answer.rstrip()}\n\n{forms_section}"
+
+
 def _map_source(name: str) -> LegalSource:
     mapping = {
         "de.openlegaldata.io": LegalSource.OPEN_LEGAL_DATA,
         "gesetze-im-internet.de": LegalSource.GESETZE_IM_INTERNET,
+        "www.gesetze-im-internet.de": LegalSource.GESETZE_IM_INTERNET,
         "recht.bund.de": LegalSource.RECHT_BUND,
         "beck-online.beck.de": LegalSource.BECK_ONLINE,
         "juris.de": LegalSource.JURIS,
@@ -50,14 +133,26 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
     session = get_or_create_session(request.user_id, request.session_id)
     answer_style = classify_query(request.message, profile)
 
+    search_query = _build_search_query(request.message, request.attachments)
+    inferred_norms = _infer_norms_from_attachments(request.message, request.attachments)
+    if inferred_norms:
+        search_query += "\n\nRelevante Normen (aus Dokumenttyp abgeleitet): " + ", ".join(inferred_norms)
+
     # Run query rewriter to get predicted norms (used for context hints)
-    rewritten = await rewrite_query(request.message, history=request.history)
+    rewritten = await rewrite_query(search_query, history=request.history)
 
     context_hits = await search_legal_context(
-        request.message,
+        search_query,
         limit=settings.legal_search_limit,
         history=request.history,
     )
+
+    # Drop low-relevance graph hits; keep runtime/predicted statute fetches
+    context_hits = [
+        h
+        for h in context_hits
+        if h.get("_predicted") or h.get("_runtime") or h.get("score", 0) >= 0.15
+    ]
 
     citations: list[Citation] = []
 
@@ -146,9 +241,21 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
     if cited_indices:
         citations = [c for c in citations if c.ref_number in cited_indices]
 
-    suggested_forms = suggest_forms_for_query(request.message, profile)
+    suggested_forms = suggest_forms_for_context(
+        request.message,
+        profile,
+        attachments=request.attachments,
+        max_forms=3,
+        language=_resolve_language(request, profile),
+    )
     if not suggested_forms and profile.legal_topic:
-        suggested_forms = suggest_forms_for_query(profile.legal_topic, profile)
+        suggested_forms = suggest_forms_for_context(
+            profile.legal_topic,
+            profile,
+            attachments=request.attachments,
+            max_forms=2,
+            language=_resolve_language(request, profile),
+        )
 
     follow_ups: list[str] = []
     follow_ups_marker = "### Mögliche Anschlussfragen:"
@@ -160,6 +267,12 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
             clean_line = line.strip().lstrip("-*1234567890. ")
             if clean_line:
                 follow_ups.append(clean_line)
+
+    if suggested_forms and request.attachments:
+        lang = _resolve_language(request, profile)
+        forms_section = format_forms_section(suggested_forms, language=lang)
+        if forms_section and forms_section not in answer:
+            answer = _insert_forms_section(answer, forms_section)
 
     if not follow_ups:
         if answer_style == AnswerStyle.GUTACHTEN:
@@ -176,6 +289,12 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
             follow_ups = [
                 "Wie lange hat das Unternehmen Zeit zu antworten?",
                 "Was tun bei fehlender Antwort?",
+            ]
+        elif request.attachments and suggested_forms:
+            follow_ups = [
+                "Welche Frist gilt für den Einspruch?",
+                "Soll ich Akteneinsicht beantragen?",
+                "Was passiert nach dem Einspruch?",
             ]
 
     style_label = (

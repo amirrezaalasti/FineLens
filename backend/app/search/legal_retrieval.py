@@ -20,6 +20,8 @@ from app.search.legal_search_config import (
 )
 from app.search.query_rewriter import rewrite_query
 from app.search.relevance_scorer import rescore_hits, retrieval_quality
+from app.ingestion.buzer import buzer_law_slug
+from app.ingestion.statute_fetch import extract_norm_references
 from app.search.runtime_law_fetch import fetch_predicted_norms, fetch_runtime_norms
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,20 @@ def _edge_to_hit(edge: EntityEdge, score: float) -> dict[str, Any]:
         body_start = fact.find("]\n\n")
         if body_start != -1:
             fact = fact[body_start + 3 :]
+
+    # Fix broken URLs if reference is known (e.g. § 17 OWiG -> https://www.buzer.de/17_OWiG.htm)
+    if not source_url and "buzer.de" in source_name.lower():
+        if not reference:
+            # Try to extract the norm from the fact itself
+            ref_match = re.search(r"§\s*(\d+[a-z]?)\s*([a-zA-Z]+)", fact)
+            if ref_match:
+                reference = ref_match.group(0)
+        if reference:
+            match = re.search(r"§\s*(\d+[a-z]?)\s*([a-zA-Z]+)", reference)
+            if match:
+                para = match.group(1)
+                law_code = match.group(2).upper()
+                source_url = f"https://www.buzer.de/{para}_{buzer_law_slug(law_code)}.htm"
 
     return {
         "fact": fact,
@@ -126,14 +142,19 @@ def _predicted_norms_cover_candidates(
     """Check if predicted norm hits cover at least some of the LLM-predicted norms."""
     if not norm_candidates or not predicted_hits:
         return False
-    hit_refs = {h.get("law_reference", "").lower() for h in predicted_hits}
-    for norm in norm_candidates[:3]:
-        norm_lower = norm.lower().replace("§", "").strip()
-        # Check if any hit reference contains this paragraph number
-        para_match = re.search(r"(\d+[a-z]?)", norm_lower)
-        if para_match:
-            para = para_match.group(1)
-            if any(para in ref for ref in hit_refs):
+    hit_refs = {
+        (h.get("law_reference", "") or "").lower().replace(" ", "")
+        for h in predicted_hits
+    }
+    for norm in norm_candidates[:5]:
+        norm_key = norm.lower().replace(" ", "").replace("abs.", "").replace("sat.", "")
+        para_match = re.search(r"§?(\d+[a-z]?)", norm_key)
+        code_match = re.search(r"(owig|stvg|stvo|bgb|stgb|dsgvo)", norm_key)
+        if not para_match or not code_match:
+            continue
+        para, code = para_match.group(1), code_match.group(1)
+        for ref in hit_refs:
+            if para in ref and code in ref:
                 return True
     return False
 
@@ -143,6 +164,13 @@ async def search_legal_context(query: str, limit: int | None = None, history: li
 
     # ── Step 1: Rewrite the query via LLM to extract legal keywords ──────
     rewritten = await rewrite_query(query, history=history)
+    doc_norms = extract_norm_references(query)
+    if doc_norms:
+        merged = list(rewritten.norm_candidates)
+        for norm in doc_norms:
+            if norm not in merged:
+                merged.append(norm)
+        rewritten.norm_candidates = merged[:8]
     logger.info(
         "Query rewriter: subjects=%s, keywords=%s, norms=%s",
         rewritten.legal_subjects,

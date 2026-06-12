@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass, field
 
+from app.ingestion.statute_fetch import extract_norm_references
+
 _GERMAN_STOPWORDS = frozenset(
     """
     eine einer eines einem einen und oder der die das den dem des mit von für auf
@@ -14,7 +16,7 @@ _GERMAN_STOPWORDS = frozenset(
 )
 
 _LAW_CODE_RE = re.compile(
-    r"\b(BGB|STGB|GG|DSGVO|HGB|ZPO|STPO|AO|VVG|BGB-AT)\b",
+    r"\b(BGB|STGB|GG|DSGVO|HGB|ZPO|STPO|AO|VVG|BGB-AT|OWIG|OWI|STVG|STVO|BKATV)\b",
     re.I,
 )
 
@@ -74,10 +76,16 @@ def analyze_query(
     legal_subjects: list[str] | None = None,
 ) -> QueryAnalysis:
     """Analyze a query, optionally enriched by the LLM query rewriter."""
-    law_codes = [m.upper() for m in _LAW_CODE_RE.findall(query)]
+    law_codes = [m.upper().replace("OWI", "OWIG") for m in _LAW_CODE_RE.findall(query)]
     salient = extract_salient_terms(query)
     tokens = {_normalize_token(t) for t in re.findall(r"\b\w{3,}\b", query.lower())}
     tokens -= _GERMAN_STOPWORDS
+
+    doc_norms = extract_norm_references(query)
+    merged_norms = list(norm_candidates or [])
+    for norm in doc_norms:
+        if norm not in merged_norms:
+            merged_norms.append(norm)
 
     # If rewriter provided keywords, use those as the primary keyword query
     # (they're cleaned of narrative fluff and focused on legal terms)
@@ -104,7 +112,7 @@ def analyze_query(
         keyword_query=keyword_query,
         token_set=tokens,
         rewritten_keywords=rewritten_keywords or [],
-        norm_candidates=norm_candidates or [],
+        norm_candidates=merged_norms,
         legal_subjects=legal_subjects or [],
     )
 

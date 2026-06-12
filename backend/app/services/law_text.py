@@ -1,7 +1,7 @@
 import asyncio
 import re
 
-from app.ingestion.buzer import fetch_law_paragraph
+from app.ingestion.statute_fetch import fetch_statute_paragraph
 from app.models.schemas import Citation, LegalSource
 
 _LAW_REF_RE = re.compile(
@@ -43,9 +43,13 @@ async def enrich_citation_with_exact_text(citation: Citation) -> Citation:
     law_ref = format_law_reference(paragraph, law_code)
 
     try:
-        title, content, url = await fetch_law_paragraph(paragraph, law_code)
+        title, content, url, source_name = await fetch_statute_paragraph(paragraph, law_code)
         if not content:
             return citation.model_copy(update={"law_reference": law_ref})
+
+        source = LegalSource.BUZER
+        if "gesetze-im-internet" in source_name:
+            source = LegalSource.GESETZE_IM_INTERNET
 
         return citation.model_copy(
             update={
@@ -53,7 +57,7 @@ async def enrich_citation_with_exact_text(citation: Citation) -> Citation:
                 "law_reference": law_ref,
                 "title": title or law_ref,
                 "source_url": url,
-                "source": LegalSource.BUZER,
+                "source": source,
             }
         )
     except Exception:

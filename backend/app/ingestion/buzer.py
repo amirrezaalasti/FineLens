@@ -9,13 +9,35 @@ from app.models.schemas import LegalSource
 
 BASE_URL = "https://www.buzer.de"
 
-# Diverse OWiG clusters for fine and penalty seeding
+# buzer.de uses mixed-case slugs for some codes (e.g. StVG, not STVG).
+_BUZER_LAW_SLUGS: dict[str, str] = {
+    "STVG": "StVG",
+    "STGB": "StGB",
+    "STPO": "StPO",
+    "ZPO": "ZPO",
+    "AO": "AO",
+    "GG": "GG",
+    "BGB": "BGB",
+    "HGB": "HGB",
+    "DSGVO": "DSGVO",
+}
+
+
+def buzer_law_slug(law_code: str) -> str:
+    """Return the path segment buzer.de expects for a law code."""
+    normalized = law_code.strip().upper()
+    return _BUZER_LAW_SLUGS.get(normalized, normalized)
+
+# Diverse clusters for fine, penalty, and civil law seeding
 BGB_SEED_CLUSTERS: dict[str, list[str]] = {
     "geldbusse_allgemein": ["17", "18", "19"],
     "verjaehrung": ["31", "32", "33", "34"],
     "einspruchsverfahren": ["67", "68", "69", "70", "71"],
     "verkehrsstrafen_stvg": ["21", "24", "24a"],
     "rechtsbeschwerde": ["79", "80"],
+    "eigentum_allgemein": ["903", "985", "986"],
+    "tierbesitz_fundrecht": ["958", "959", "960", "961"],
+    "mietrecht": ["535", "536", "558", "559"],
 }
 
 
@@ -29,9 +51,11 @@ def bgb_seed_paragraphs() -> list[str]:
 
 
 DEFAULT_PARAGRAPHS: dict[str, list[str]] = {
-    "OWIG": bgb_seed_paragraphs(),
+    "OWIG": ["17", "35", "67"],
+    "BGB": ["903", "823", "558"],
     "STVG": ["21", "24", "24a"],
     "STGB": ["1", "2", "3"],
+    "DSGVO": ["15", "17", "77"],
 }
 
 
@@ -88,7 +112,8 @@ def _parse_query(query: str) -> tuple[str | None, str | None]:
 
 
 async def fetch_law_paragraph(paragraph: str, law_code: str) -> tuple[str, str, str]:
-    path = f"/{paragraph}_{law_code}.htm"
+    slug = buzer_law_slug(law_code)
+    path = f"/{paragraph}_{slug}.htm"
     url = f"{BASE_URL}{path}"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(url, headers={"User-Agent": "FineLens/0.1"})
@@ -97,20 +122,21 @@ async def fetch_law_paragraph(paragraph: str, law_code: str) -> tuple[str, str, 
 
     title = _parse_title(html)
     content = _extract_paragraph_text(html)
-    reference = f"§ {paragraph} {law_code}"
+    reference = f"§ {paragraph} {law_code.upper()}"
     return title, content, url
 
 
 async def _fetch_toc_paragraphs(law_code: str, limit: int) -> list[str]:
+    slug = buzer_law_slug(law_code)
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(
-            f"{BASE_URL}/{law_code}.htm",
+            f"{BASE_URL}/{slug}.htm",
             headers={"User-Agent": "FineLens/0.1"},
         )
         resp.raise_for_status()
         html = resp.text
 
-    links = re.findall(rf'href="(/(\d+[a-z]?)_{law_code}\.htm)"', html, re.I)
+    links = re.findall(rf'href="(/(\d+[a-z]?)_{re.escape(slug)}\.htm)"', html, re.I)
     seen: set[str] = set()
     paragraphs: list[str] = []
     for _, paragraph in links:

@@ -36,6 +36,9 @@ Regeln:
 6. search_keywords soll 4-8 prägnante Begriffe enthalten, die für BM25-Suche optimal sind.
 7. Falls der Gesprächsverlauf vorliegt, nutze ihn um unvollständige Folgefragen (z.B. "Ist das legal?", "Und bei Mietwohnung?") zu kontextualisieren und zu vervollständigen.
 8. Falls die Nutzerfrage in einer anderen Sprache als Deutsch ist (z. B. Englisch), übersetze die juristischen Konzepte ins Deutsche, um die entsprechenden deutschen Suchbegriffe und Normen zu generieren.
+9. Falls ein Dokument (Bußgeldbescheid, Vertrag, Bescheid) im Text enthalten ist: extrahiere ALLE §-Verweise aus dem Dokument und nenne die einschlägigen Normen (z.B. § 24 StVG, § 67 OWiG, § 26 StVG bei Geschwindigkeitsüberschreitung).
+10. Bei Bußgeldbescheiden/Verkehrsordnungswidrigkeiten: nenne § 24/§ 24a StVG, § 49 StVG, § 67 OWiG (Einspruch), § 26 StVG (Verjährung), § 31 OWiG.
+11. Ignoriere Dateinamen und Platzhaltertext — lies den Dokumentinhalt vollständig.
 """
 
 

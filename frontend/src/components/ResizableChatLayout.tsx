@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "@/i18n";
 
 const STORAGE_KEY = "finelens-panel-widths";
 
@@ -43,6 +44,7 @@ function loadWidths(): PanelWidths {
 }
 
 function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
+  const { t } = useTranslation();
   const dragging = useRef(false);
   const lastX = useRef(0);
 
@@ -75,7 +77,7 @@ function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Panelbreite anpassen"
+      aria-label={t("layout.resizePanels")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

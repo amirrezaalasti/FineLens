@@ -99,6 +99,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
     attachments: list[Attachment] = Field(default_factory=list)
+    language: str | None = None
 
 
 class FormField(BaseModel):
@@ -120,6 +121,7 @@ class LegalForm(BaseModel):
     source_url: str = ""
     fields: list[FormField]
     legal_basis: list[str] = Field(default_factory=list)
+    body_template: str = ""
 
 
 class ChatResponse(BaseModel):

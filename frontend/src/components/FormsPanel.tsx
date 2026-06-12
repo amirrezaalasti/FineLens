@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, FileEdit, Sparkles } from "lucide-react";
 import { getForms } from "@/lib/api";
+import { useTranslation } from "@/i18n";
 import type { FormField, LegalForm } from "@/lib/types";
 
 interface FormsPanelProps {
@@ -11,17 +12,33 @@ interface FormsPanelProps {
 }
 
 export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
+  const { t, locale } = useTranslation();
   const [forms, setForms] = useState<LegalForm[]>([]);
   const [activeForm, setActiveForm] = useState<LegalForm | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getForms(userId)
-      .then(setForms)
+    setLoading(true);
+    getForms(userId, locale)
+      .then((loaded) => {
+        setForms(loaded);
+        if (activeForm) {
+          const refreshed = loaded.find((f) => f.id === activeForm.id);
+          if (refreshed) {
+            setActiveForm(refreshed);
+            const values: Record<string, string> = {};
+            refreshed.fields.forEach((f) => {
+              values[f.id] = fieldValues[f.id] ?? f.value;
+            });
+            setFieldValues(values);
+          }
+        }
+      })
       .catch(() => setForms([]))
       .finally(() => setLoading(false));
-  }, [userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, locale]);
 
   useEffect(() => {
     if (suggestedForms.length > 0 && !activeForm) {
@@ -44,17 +61,34 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
 
   const exportForm = () => {
     if (!activeForm) return;
-    const lines = [
-      activeForm.title,
-      "=".repeat(activeForm.title.length),
-      "",
-      activeForm.description,
-      "",
-      ...activeForm.fields.map((f) => `${f.label}: ${fieldValues[f.id] || ""}`),
-      "",
-      `Rechtsgrundlage: ${activeForm.legal_basis.join(", ")}`,
-      `Quelle: ${activeForm.source_url}`,
-    ];
+    const letterBody = activeForm.body_template
+      ? activeForm.fields.reduce(
+          (body, f) => body.replaceAll(`{{${f.id}}}`, fieldValues[f.id] || `[${f.label}]`),
+          activeForm.body_template
+        )
+      : null;
+
+    const lines = letterBody
+      ? [
+          activeForm.title,
+          "=".repeat(activeForm.title.length),
+          "",
+          letterBody,
+          "",
+          `${t("common.legalBasis")}: ${activeForm.legal_basis.join(", ")}`,
+          `${t("common.source")}: ${activeForm.source_url}`,
+        ]
+      : [
+          activeForm.title,
+          "=".repeat(activeForm.title.length),
+          "",
+          activeForm.description,
+          "",
+          ...activeForm.fields.map((f) => `${f.label}: ${fieldValues[f.id] || ""}`),
+          "",
+          `${t("common.legalBasis")}: ${activeForm.legal_basis.join(", ")}`,
+          `${t("common.source")}: ${activeForm.source_url}`,
+        ];
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -80,26 +114,29 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
     return <input type={field.type === "number" ? "number" : field.type} {...common} />;
   };
 
+  const uniqueSuggestedIds = [...new Set(suggestedForms.map((s) => s.id))];
+  const uniqueSuggested = uniqueSuggestedIds
+    .map((id) => forms.find((f) => f.id === id) ?? suggestedForms.find((s) => s.id === id))
+    .filter((f): f is LegalForm => Boolean(f));
+  const suggestedIds = new Set(uniqueSuggested.map((s) => s.id));
   const displayForms = [
-    ...suggestedForms,
-    ...forms.filter((f) => !suggestedForms.some((s) => s.id === f.id)),
+    ...uniqueSuggested,
+    ...forms.filter((f) => !suggestedIds.has(f.id)),
   ];
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-5">
       <div className="lg:col-span-2">
         <div className="glass rounded-2xl p-4 shadow-sm">
-          <h2 className="mb-1 font-semibold text-navy">Rechtsformulare</h2>
-          <p className="mb-4 text-xs text-slate-500">
-            Automatisch vorausgefüllt aus Ihrem Profil
-          </p>
+          <h2 className="mb-1 font-semibold text-navy">{t("forms.title")}</h2>
+          <p className="mb-4 text-xs text-slate-500">{t("forms.subtitle")}</p>
 
           {loading ? (
-            <p className="text-sm text-slate-400">Laden...</p>
+            <p className="text-sm text-slate-400">{t("common.loading")}</p>
           ) : (
             <div className="space-y-2">
               {displayForms.map((form) => {
-                const isSuggested = suggestedForms.some((s) => s.id === form.id);
+                const isSuggested = uniqueSuggested.some((s) => s.id === form.id);
                 return (
                   <button
                     key={form.id}
@@ -117,7 +154,7 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
                       </div>
                       {isSuggested && (
                         <span className="flex items-center gap-0.5 rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-semibold text-navy">
-                          <Sparkles className="h-3 w-3" /> KI
+                          <Sparkles className="h-3 w-3" /> {t("common.ai")}
                         </span>
                       )}
                     </div>
@@ -152,7 +189,7 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
                 className="flex shrink-0 items-center gap-2 rounded-xl bg-navy px-3 py-2 text-xs font-medium text-white hover:bg-navy-light"
               >
                 <Download className="h-3.5 w-3.5" />
-                Export
+                {t("common.export")}
               </button>
             </div>
 
@@ -164,7 +201,7 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
                     {field.required && <span className="text-red-400">*</span>}
                     {field.prefilled_from && field.value && (
                       <span className="rounded bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700">
-                        aus Profil
+                        {t("common.fromProfile")}
                       </span>
                     )}
                   </label>
@@ -172,14 +209,28 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
                 </div>
               ))}
             </div>
+
+            {activeForm.body_template && (
+              <div className="mt-6 rounded-xl border border-navy/10 bg-cream/40 p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy/50">
+                  {t("forms.letterPreview")}
+                </p>
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-navy/90">
+                  {activeForm.fields.reduce(
+                    (body, f) =>
+                      body.replaceAll(`{{${f.id}}}`, fieldValues[f.id] || `[${f.label}]`),
+                    activeForm.body_template
+                  )}
+                </pre>
+              </div>
+            )}
           </div>
         ) : (
           <div className="glass flex flex-col items-center justify-center rounded-2xl p-12 text-center shadow-sm">
             <FileEdit className="mb-4 h-12 w-12 text-slate-300" />
-            <p className="font-medium text-navy">Formular auswählen</p>
+            <p className="font-medium text-navy">{t("forms.selectTitle")}</p>
             <p className="mt-1 max-w-sm text-sm text-slate-500">
-              Wählen Sie links ein Formular oder stellen Sie im Chat eine Frage — wir
-              schlagen passende Formulare vor.
+              {t("forms.selectDescription")}
             </p>
           </div>
         )}

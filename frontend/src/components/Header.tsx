@@ -30,7 +30,7 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
               Fine<span className="text-gold-light">Lens</span>
             </h1>
             <p className="hidden text-xs text-white/60 sm:block">
-              Powered by Graphiti · Transparente Quellen
+              Graph-Enhanced Legal Intelligence
             </p>
           </div>
         </div>

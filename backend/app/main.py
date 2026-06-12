@@ -60,6 +60,6 @@ app.include_router(ingest.router)
 async def root():
     return {
         "name": "FineLens",
-        "tagline": "Transparente Rechtsinformation mit Graphiti",
+        "tagline": "Graph-Enhanced Legal Intelligence",
         "docs": "/docs",
     }

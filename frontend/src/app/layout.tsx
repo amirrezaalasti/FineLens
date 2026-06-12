@@ -15,7 +15,7 @@ const sourceSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "FineLens — Transparente Rechtsinformation",
+  title: "FineLens — Graph-Enhanced Legal Intelligence",
   description:
     "KI-gestützter juristischer Assistent mit Graphiti Knowledge Graph, Quellennachweisen und intelligenten Formularen.",
 };

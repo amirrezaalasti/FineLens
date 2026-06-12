@@ -93,7 +93,7 @@ export default function DemoPage() {
           <div className="demo-fade-in max-w-3xl">
             <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gold-light">
               <Sparkles className="h-3.5 w-3.5" />
-              Graphiti · FalkorDB · Transparente KI
+              Graph-Enhanced Legal Intelligence
             </p>
             <h1 className="font-serif text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
               Gesetze werden zu einem{" "}

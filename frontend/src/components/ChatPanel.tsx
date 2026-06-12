@@ -14,6 +14,9 @@ interface ChatPanelProps {
   onResponse: (msg: ChatMessage) => void;
   onFormSuggest: (forms: LegalForm[]) => void;
   onOpenFormsTab?: () => void;
+  onAttachmentSelect?: (attachment: Attachment) => void;
+  attachments: Attachment[];
+  setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -25,6 +28,9 @@ export function ChatPanel({
   onResponse,
   onFormSuggest,
   onOpenFormsTab,
+  onAttachmentSelect,
+  attachments,
+  setAttachments,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -42,9 +48,6 @@ export function ChatPanel({
   const baseInputRef = useRef("");
   const isListeningRef = useRef(false);
   const lastToggleRef = useRef(0);
-
-  // New state variables for attachments
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -74,6 +77,10 @@ export function ChatPanel({
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     setUploading(false);
+    
+    if (newAttachments.length > 0 && onAttachmentSelect) {
+      onAttachmentSelect(newAttachments[0]);
+    }
     
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -402,21 +409,23 @@ export function ChatPanel({
                     {m.attachments && m.attachments.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/10 pt-2">
                         {m.attachments.map((att, idx) => (
-                          <div
+                          <button
                             key={idx}
-                            className="flex items-center gap-1 rounded bg-white/10 border border-white/20 px-1.5 py-0.5 text-xs text-white"
+                            onClick={() => onAttachmentSelect?.(att)}
+                            className="flex items-center gap-1.5 rounded bg-white/10 border border-white/20 hover:bg-white/25 hover:border-white/30 px-2 py-1 text-xs text-white cursor-pointer transition-all duration-150"
+                            title="In Dokumenten-Analyse anzeigen"
                           >
                             {att.file_type.startsWith("image/") ? (
-                              <FileImage className="h-3 w-3 text-white/80" />
+                              <FileImage className="h-3 w-3 text-white/80 shrink-0" />
                             ) : att.file_type === "application/pdf" ? (
-                              <FileText className="h-3 w-3 text-white/80" />
+                              <FileText className="h-3 w-3 text-white/80 shrink-0" />
                             ) : (
-                              <File className="h-3 w-3 text-white/80" />
+                              <File className="h-3 w-3 text-white/80 shrink-0" />
                             )}
                             <span className="max-w-[120px] truncate" title={att.name}>
                               {att.name}
                             </span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}

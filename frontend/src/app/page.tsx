@@ -9,6 +9,7 @@ import { ResizableChatLayout } from "@/components/ResizableChatLayout";
 import { ProfileWizard } from "@/components/ProfileWizard";
 import { FormsPanel } from "@/components/FormsPanel";
 import { SourcesPanel } from "@/components/SourcesPanel";
+import { DocumentAnalysisPanel } from "@/components/DocumentAnalysisPanel";
 import {
   createChatSession,
   deleteChatSession,
@@ -16,7 +17,7 @@ import {
   listChatSessions,
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
-import type { ChatMessage, ChatSessionSummary, Citation, LegalForm } from "@/lib/types";
+import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField } from "@/lib/types";
 
 type Tab = "chat" | "profile" | "forms" | "sources";
 
@@ -43,6 +44,25 @@ export default function Home() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [activeRightTab, setActiveRightTab] = useState<"citations" | "analysis">("citations");
+  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
+  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>([]);
+
+  const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
+    setSelectedAttachment(prev => {
+      if (!prev) return null;
+      const updated = {
+        ...prev,
+        analysis: prev.analysis
+          ? { ...prev.analysis, fields: updatedFields }
+          : { fields: updatedFields, raw_text: "", preview_image_url: null }
+      };
+      setDraftAttachments(drafts =>
+        drafts.map(d => d.name === prev.name ? updated : d)
+      );
+      return updated;
+    });
+  }, []);
 
   const refreshSessions = useCallback(async () => {
     const list = await listChatSessions(USER_ID);
@@ -93,11 +113,15 @@ export default function Home() {
     setActiveSessionId(session.id);
     setCitations([]);
     setTransparencyNote("");
+    setSelectedAttachment(null);
+    setActiveRightTab("citations");
     await refreshSessions();
   };
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
+    setSelectedAttachment(null);
+    setActiveRightTab("citations");
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -163,13 +187,56 @@ export default function Home() {
                   onResponse={handleResponse}
                   onFormSuggest={handleFormSuggest}
                   onOpenFormsTab={() => setTab("forms")}
+                  onAttachmentSelect={(att) => {
+                    setSelectedAttachment(att);
+                    setActiveRightTab("analysis");
+                  }}
+                  attachments={draftAttachments}
+                  setAttachments={setDraftAttachments}
                 />
               }
               citations={
-                <CitationsPanel
-                  citations={citations}
-                  transparencyNote={transparencyNote}
-                />
+                <div className="flex h-full flex-col min-h-0 gap-3">
+                  <div className="flex bg-navy/5 p-1 rounded-xl border border-navy/10 shrink-0">
+                    <button
+                      onClick={() => setActiveRightTab("citations")}
+                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        activeRightTab === "citations"
+                          ? "bg-navy text-white shadow-sm"
+                          : "text-navy/60 hover:text-navy hover:bg-navy/5"
+                      }`}
+                    >
+                      Quellen & Transparenz
+                    </button>
+                    <button
+                      onClick={() => setActiveRightTab("analysis")}
+                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                        activeRightTab === "analysis"
+                          ? "bg-navy text-white shadow-sm"
+                          : "text-navy/60 hover:text-navy hover:bg-navy/5"
+                      }`}
+                    >
+                      Dokumenten-Analyse
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    {activeRightTab === "citations" ? (
+                      <CitationsPanel
+                        citations={citations}
+                        transparencyNote={transparencyNote}
+                      />
+                    ) : (
+                      <DocumentAnalysisPanel
+                        attachment={selectedAttachment}
+                        onClose={() => {
+                          setSelectedAttachment(null);
+                          setActiveRightTab("citations");
+                        }}
+                        onUpdateAnalysis={handleUpdateAnalysis}
+                      />
+                    )}
+                  </div>
+                </div>
               }
             />
           </div>

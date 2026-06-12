@@ -52,10 +52,25 @@ class Citation(BaseModel):
     ref_number: int = 0
 
 
+class ExtractedField(BaseModel):
+    field_name: str
+    value: str
+    box: list[float] | None = None  # [top, left, width, height] as relative percentages (0.0 to 100.0)
+    confidence: float = 1.0
+    is_pii: bool = False
+
+
+class DocumentAnalysis(BaseModel):
+    fields: list[ExtractedField] = Field(default_factory=list)
+    raw_text: str = ""
+    preview_image_url: str | None = None  # Base64 data URL for display preview
+
+
 class Attachment(BaseModel):
     name: str
     content: str
     file_type: str
+    analysis: DocumentAnalysis | None = None
 
 
 class ChatMessage(BaseModel):

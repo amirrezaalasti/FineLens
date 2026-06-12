@@ -48,10 +48,25 @@ export interface LegalForm {
   body_template?: string;
 }
 
+export interface ExtractedField {
+  field_name: string;
+  value: string;
+  box: number[] | null; // [top, left, width, height] as relative percentages (0.0 to 100.0)
+  confidence: number;
+  is_pii?: boolean;
+}
+
+export interface DocumentAnalysis {
+  fields: ExtractedField[];
+  raw_text: string;
+  preview_image_url: string | null;
+}
+
 export interface Attachment {
   name: string;
   content: string;
   file_type: string;
+  analysis?: DocumentAnalysis | null;
 }
 
 export interface ChatMessage {

@@ -1,5 +1,6 @@
 """Weighted hybrid retrieval with relevance filtering and runtime statute fetch."""
 
+import asyncio
 import logging
 import re
 from collections import defaultdict
@@ -19,7 +20,7 @@ from app.search.legal_search_config import (
 )
 from app.search.query_rewriter import rewrite_query
 from app.search.relevance_scorer import rescore_hits, retrieval_quality
-from app.search.runtime_law_fetch import fetch_runtime_norms
+from app.search.runtime_law_fetch import fetch_predicted_norms, fetch_runtime_norms
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +112,30 @@ def weighted_rrf_merge(
     for items, weight in ranked_lists:
         for rank, (uid, hit) in enumerate(items):
             scores[uid] += weight / (rank + 1)
-            if uid not in hits or hit.get("_runtime"):
+            if uid not in hits or hit.get("_runtime") or hit.get("_predicted"):
                 hits[uid] = hit
 
     ordered = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [{**hits[uid], "score": min(score, 1.0)} for uid, score in ordered[: limit * 2]]
+
+
+def _predicted_norms_cover_candidates(
+    predicted_hits: list[dict[str, Any]],
+    norm_candidates: list[str],
+) -> bool:
+    """Check if predicted norm hits cover at least some of the LLM-predicted norms."""
+    if not norm_candidates or not predicted_hits:
+        return False
+    hit_refs = {h.get("law_reference", "").lower() for h in predicted_hits}
+    for norm in norm_candidates[:3]:
+        norm_lower = norm.lower().replace("§", "").strip()
+        # Check if any hit reference contains this paragraph number
+        para_match = re.search(r"(\d+[a-z]?)", norm_lower)
+        if para_match:
+            para = para_match.group(1)
+            if any(para in ref for ref in hit_refs):
+                return True
+    return False
 
 
 async def search_legal_context(query: str, limit: int | None = None) -> list[dict[str, Any]]:
@@ -144,7 +164,14 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
     keyword_enhanced = enhance_legal_query(analysis.keyword_query)
     candidate_limit = limit * 3
 
-    # ── Step 3: BM25 passes (full query + rewritten keywords) ────────────
+    # ── Step 3: Fetch predicted norms from buzer.de IN PARALLEL with graph search
+    # This is the highest-signal path: the LLM identified specific norms,
+    # and we fetch their exact text directly.
+    predicted_norms_task = asyncio.create_task(
+        fetch_predicted_norms(rewritten.norm_candidates, limit=limit)
+    ) if rewritten.norm_candidates else None
+
+    # ── Step 4: BM25 passes (full query + rewritten keywords) ────────────
     bm25_full = await graphiti.search_(
         query=enhanced,
         group_ids=[LEGAL_GROUP],
@@ -159,7 +186,7 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
         driver=driver,
     )
 
-    # ── Step 4: Hybrid search (citation-first or standard) ───────────────
+    # ── Step 5: Hybrid search (citation-first or standard) ───────────────
     hybrid_config = (
         citation_first_edge_search(candidate_limit)
         if is_citation_heavy_query(query)
@@ -172,9 +199,7 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
         driver=driver,
     )
 
-    # ── Step 5: Dedicated node search for legal subjects ─────────────────
-    # This is the key addition: search for LegalSubject nodes (e.g. "Biene")
-    # by BM25, then BFS-traverse their graph edges to reach connected norms.
+    # ── Step 6: Dedicated node search for legal subjects ─────────────────
     node_search_edges: list[tuple[str, dict[str, Any]]] = []
     node_search_nodes: list[tuple[str, dict[str, Any]]] = []
 
@@ -203,7 +228,7 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
             len(node_search_nodes),
         )
 
-    # ── Step 6: Also BM25-search for norm candidates from rewriter ───────
+    # ── Step 7: Also BM25-search for norm candidates from rewriter ───────
     norm_edges: list[tuple[str, dict[str, Any]]] = []
     if rewritten.norm_candidates:
         norm_query = " ".join(rewritten.norm_candidates[:4])
@@ -219,7 +244,16 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
             if getattr(edge, "uuid", None)
         ]
 
-    # ── Step 7: Merge all ranked lists via weighted RRF ──────────────────
+    # ── Step 8: Collect predicted norm hits ───────────────────────────────
+    predicted_hits: list[dict[str, Any]] = []
+    if predicted_norms_task is not None:
+        try:
+            predicted_hits = await predicted_norms_task
+            logger.info("Predicted norm fetch returned %d hits", len(predicted_hits))
+        except Exception as exc:
+            logger.warning("Predicted norm fetch failed: %s", exc)
+
+    # ── Step 9: Merge all ranked lists via weighted RRF ──────────────────
     def to_edge_list(result: Any, base_score: float) -> list[tuple[str, dict[str, Any]]]:
         return [
             (edge.uuid, _edge_to_hit(edge, base_score))
@@ -250,13 +284,31 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
     if norm_edges:
         ranked_lists.append((norm_edges, settings.legal_search_bm25_weight * 1.3))
 
+    # Add predicted norm hits with HIGHEST weight — these are the direct buzer.de fetches
+    # based on LLM-predicted norms, the most reliable source of lex specialis
+    if predicted_hits:
+        predicted_list = [(h["uuid"], h) for h in predicted_hits]
+        ranked_lists.append((predicted_list, settings.legal_search_bm25_weight * 2.0))
+
     merged = weighted_rrf_merge(ranked_lists, limit=candidate_limit)
 
-    # ── Step 8: Rescore and filter ───────────────────────────────────────
+    # ── Step 10: Rescore and filter ──────────────────────────────────────
     rescored = rescore_hits(merged, analysis)
 
+    # Determine if we need runtime fallback:
+    # - Standard quality check
+    # - OR: norm candidates were predicted but none appear in results (graph gap)
     quality = retrieval_quality(rescored)
-    if settings.legal_search_runtime_fetch and quality < settings.legal_search_min_quality:
+    graph_has_predicted = _predicted_norms_cover_candidates(rescored, rewritten.norm_candidates)
+    needs_runtime = (
+        settings.legal_search_runtime_fetch
+        and (
+            quality < settings.legal_search_min_quality
+            or (rewritten.norm_candidates and not graph_has_predicted and not predicted_hits)
+        )
+    )
+
+    if needs_runtime:
         runtime_hits = await fetch_runtime_norms(analysis, limit=limit)
         if runtime_hits:
             runtime_list = [
@@ -272,4 +324,3 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
             rescored = rescore_hits(merged_with_runtime, analysis)
 
     return rescored[:limit]
-

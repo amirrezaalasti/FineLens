@@ -12,6 +12,7 @@ from app.models.schemas import (
     SOURCE_URLS,
     StoredChatMessage,
 )
+from app.search.query_rewriter import rewrite_query
 from app.services.chat_store import append_messages, get_or_create_session
 from app.services.form_templates import suggest_forms_for_query
 from app.services.law_text import enrich_citations
@@ -49,6 +50,9 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
     session = get_or_create_session(request.user_id, request.session_id)
     answer_style = classify_query(request.message, profile)
 
+    # Run query rewriter to get predicted norms (used for context hints)
+    rewritten = await rewrite_query(request.message)
+
     context_hits = await search_legal_context(
         request.message,
         limit=settings.legal_search_limit,
@@ -85,6 +89,17 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
             context_block += f" ({c.law_reference})"
         context_block += f"\n{c.excerpt}\nURL: {c.source_url}\n"
 
+    # Add predicted norms hint so the LLM knows which norms the system
+    # identified as potentially relevant, even if retrieval didn't find them all
+    if rewritten.norm_candidates:
+        norms_hint = ", ".join(rewritten.norm_candidates)
+        context_block += (
+            f"\n--- Systemhinweis: Der Suchoptimierer hat folgende Normen als "
+            f"potenziell einschlägig identifiziert: {norms_hint}. "
+            f"Falls diese Normen oben nicht enthalten sind, prüfe ob du sie "
+            f"aus deinem Wissen sicher benennen kannst. ---\n"
+        )
+
     user_context = ""
     if profile.first_name or profile.legal_topic:
         user_context = (
@@ -108,10 +123,8 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     completion = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5.5",
         messages=messages,
-        temperature=0.2 if answer_style == AnswerStyle.GUTACHTEN else 0.3,
-        max_tokens=2000 if answer_style == AnswerStyle.GUTACHTEN else 1500,
     )
     answer = completion.choices[0].message.content or ""
 

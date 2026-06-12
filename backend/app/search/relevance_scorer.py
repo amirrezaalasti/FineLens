@@ -19,6 +19,17 @@ _DOMAIN_MARKERS: dict[str, frozenset[str]] = {
     "familienrecht": frozenset({"scheidung", "unterhalt", "sorge", "ehegatte"}),
     "arbeitsrecht": frozenset({"arbeitnehmer", "arbeitgeber", "kündigung arbeit", "betriebsrat"}),
     "strafrecht": frozenset({"straftat", "freiheitsstrafe", "geldstrafe", "stgb"}),
+    "sachenrecht": frozenset(
+        {"eigentum", "besitz", "herrenlos", "aneignung", "biene", "schwarm",
+         "bienenschwarm", "bienenstock", "fund", "fundstück", "finder", "wildtier"}
+    ),
+    "nachbarrecht": frozenset(
+        {"nachbar", "grundstück", "grenze", "überbau", "notwegrecht",
+         "immission", "betreten", "verfolgungsrecht"}
+    ),
+    "handelsrecht": frozenset(
+        {"kaufmann", "handelsregister", "hgb", "firma", "prokura"}
+    ),
 }
 
 # Paragraph ranges strongly associated with a domain (BGB) — used as secondary signal.
@@ -26,6 +37,9 @@ _PARAGRAPH_DOMAIN: list[tuple[int, int, str]] = [
     (535, 580, "mietrecht"),
     (242, 304, "familienrecht"),
     (1922, 1990, "erbrecht"),
+    (958, 966, "sachenrecht"),
+    (823, 853, "deliktsrecht"),
+    (903, 924, "sachenrecht"),
 ]
 
 _PARA_REF_RE = re.compile(r"§\s*(\d+)", re.I)
@@ -208,8 +222,10 @@ def rescore_hits(
 
         # BM25-like term overlap is weighted heavily; base retrieval score is secondary.
         # Specificity and norm bonuses are additive — they can promote rare-term hits.
+        # Predicted-norm hits get a floor boost so they never score below useful threshold
+        predicted_floor = 0.15 if hit.get("_predicted") else 0.0
         final = (
-            (overlap * 0.55 + base * 0.25 + spec_bonus * specificity_weight + norm_bonus * 0.15)
+            (overlap * 0.50 + base * 0.20 + spec_bonus * specificity_weight + norm_bonus * 0.25 + predicted_floor)
             * domain_factor
         )
 

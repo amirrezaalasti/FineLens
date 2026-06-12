@@ -141,13 +141,11 @@ async def rewrite_query(query: str) -> RewrittenQuery:
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         completion = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5.5",
             messages=[
                 {"role": "system", "content": _REWRITE_SYSTEM_PROMPT},
                 {"role": "user", "content": query},
             ],
-            temperature=0.0,
-            max_tokens=400,
         )
         raw = completion.choices[0].message.content or ""
 

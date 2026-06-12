@@ -52,6 +52,12 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
         </nav>
 
         <div className="flex items-center gap-2">
+          <a
+            href="/demo"
+            className="hidden rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-gold/40 hover:text-gold-light sm:inline"
+          >
+            Demo
+          </a>
           {graphConnected !== null && (
             <span
               className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:flex ${

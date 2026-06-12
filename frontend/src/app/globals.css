@@ -73,3 +73,104 @@ body {
 .animate-fade-up {
   animation: fade-up 0.35s ease-out forwards;
 }
+
+/* Demo page */
+.demo-hero-mesh {
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 20%, rgba(201, 162, 39, 0.12), transparent),
+    radial-gradient(ellipse 50% 40% at 10% 80%, rgba(89, 156, 231, 0.08), transparent);
+}
+
+.demo-fade-in {
+  animation: demo-fade-in 0.8s ease-out forwards;
+}
+
+.demo-fade-in-delay {
+  animation: demo-fade-in 0.8s ease-out 0.2s forwards;
+  opacity: 0;
+}
+
+@keyframes demo-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.demo-graph-frame {
+  box-shadow:
+    0 0 0 1px rgba(201, 162, 39, 0.08),
+    0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.demo-graph-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+.demo-node-ring {
+  animation: demo-ring-pulse 2s ease-in-out infinite;
+}
+
+@keyframes demo-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+
+.demo-node-halo {
+  animation: demo-halo 3s ease-in-out infinite;
+}
+
+@keyframes demo-halo {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.demo-edge-pulse {
+  animation: demo-edge-flow 3s linear infinite;
+}
+
+@keyframes demo-edge-flow {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+.demo-pipeline-card-active {
+  transform: translateY(-2px);
+}
+
+.demo-pipeline-dot {
+  animation: demo-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes demo-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}

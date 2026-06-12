@@ -1,5 +1,6 @@
 """Weighted hybrid retrieval with relevance filtering and runtime statute fetch."""
 
+import logging
 import re
 from collections import defaultdict
 from typing import Any
@@ -14,9 +15,13 @@ from app.search.legal_search_config import (
     bm25_only_edge_search,
     citation_first_edge_search,
     legal_hybrid_edge_search,
+    node_bm25_search,
 )
+from app.search.query_rewriter import rewrite_query
 from app.search.relevance_scorer import rescore_hits, retrieval_quality
 from app.search.runtime_law_fetch import fetch_runtime_norms
+
+logger = logging.getLogger(__name__)
 
 _CITATION_RE = re.compile(
     r"§\s*\d|abs\.|satz\s*\d|\b(bgb|stgb|gg|dsgvo|zpo|hgb)\b",
@@ -115,13 +120,31 @@ def weighted_rrf_merge(
 
 async def search_legal_context(query: str, limit: int | None = None) -> list[dict[str, Any]]:
     limit = limit or settings.legal_search_limit
-    analysis = analyze_query(query)
+
+    # ── Step 1: Rewrite the query via LLM to extract legal keywords ──────
+    rewritten = await rewrite_query(query)
+    logger.info(
+        "Query rewriter: subjects=%s, keywords=%s, norms=%s",
+        rewritten.legal_subjects,
+        rewritten.search_keywords,
+        rewritten.norm_candidates,
+    )
+
+    # ── Step 2: Analyze query with rewriter enrichment ───────────────────
+    analysis = analyze_query(
+        query,
+        rewritten_keywords=rewritten.search_keywords,
+        norm_candidates=rewritten.norm_candidates,
+        legal_subjects=rewritten.legal_subjects,
+    )
+
     graphiti = await get_graphiti()
     driver = graphiti.clients.driver.clone(database=LEGAL_GROUP)
     enhanced = enhance_legal_query(query)
     keyword_enhanced = enhance_legal_query(analysis.keyword_query)
     candidate_limit = limit * 3
 
+    # ── Step 3: BM25 passes (full query + rewritten keywords) ────────────
     bm25_full = await graphiti.search_(
         query=enhanced,
         group_ids=[LEGAL_GROUP],
@@ -136,6 +159,7 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
         driver=driver,
     )
 
+    # ── Step 4: Hybrid search (citation-first or standard) ───────────────
     hybrid_config = (
         citation_first_edge_search(candidate_limit)
         if is_citation_heavy_query(query)
@@ -148,6 +172,54 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
         driver=driver,
     )
 
+    # ── Step 5: Dedicated node search for legal subjects ─────────────────
+    # This is the key addition: search for LegalSubject nodes (e.g. "Biene")
+    # by BM25, then BFS-traverse their graph edges to reach connected norms.
+    node_search_edges: list[tuple[str, dict[str, Any]]] = []
+    node_search_nodes: list[tuple[str, dict[str, Any]]] = []
+
+    subject_query = rewritten.subject_query
+    if subject_query:
+        node_result = await graphiti.search_(
+            query=subject_query,
+            group_ids=[LEGAL_GROUP],
+            config=node_bm25_search(candidate_limit),
+            driver=driver,
+        )
+        node_search_edges = [
+            (edge.uuid, _edge_to_hit(edge, 0.95))
+            for edge in node_result.edges
+            if getattr(edge, "uuid", None)
+        ]
+        node_search_nodes = [
+            (node.uuid, _node_to_hit(node, 0.85))
+            for node in node_result.nodes
+            if getattr(node, "uuid", None)
+        ]
+        logger.info(
+            "Node search for '%s': %d edges, %d nodes",
+            subject_query,
+            len(node_search_edges),
+            len(node_search_nodes),
+        )
+
+    # ── Step 6: Also BM25-search for norm candidates from rewriter ───────
+    norm_edges: list[tuple[str, dict[str, Any]]] = []
+    if rewritten.norm_candidates:
+        norm_query = " ".join(rewritten.norm_candidates[:4])
+        norm_result = await graphiti.search_(
+            query=norm_query,
+            group_ids=[LEGAL_GROUP],
+            config=bm25_only_edge_search(candidate_limit),
+            driver=driver,
+        )
+        norm_edges = [
+            (edge.uuid, _edge_to_hit(edge, 0.95))
+            for edge in norm_result.edges
+            if getattr(edge, "uuid", None)
+        ]
+
+    # ── Step 7: Merge all ranked lists via weighted RRF ──────────────────
     def to_edge_list(result: Any, base_score: float) -> list[tuple[str, dict[str, Any]]]:
         return [
             (edge.uuid, _edge_to_hit(edge, base_score))
@@ -155,23 +227,32 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
             if getattr(edge, "uuid", None)
         ]
 
-    merged = weighted_rrf_merge(
-        [
-            (to_edge_list(bm25_full, 0.9), settings.legal_search_bm25_weight),
-            (to_edge_list(bm25_keyword, 0.95), settings.legal_search_bm25_weight * 1.2),
-            (to_edge_list(hybrid_result, 0.8), 1.0),
-            (
-                [
-                    (node.uuid, _node_to_hit(node, 0.7))
-                    for node in hybrid_result.nodes
-                    if getattr(node, "uuid", None)
-                ],
-                0.75,
-            ),
-        ],
-        limit=candidate_limit,
-    )
+    ranked_lists: list[tuple[list[tuple[str, dict[str, Any]]], float]] = [
+        (to_edge_list(bm25_full, 0.9), settings.legal_search_bm25_weight),
+        (to_edge_list(bm25_keyword, 0.95), settings.legal_search_bm25_weight * 1.2),
+        (to_edge_list(hybrid_result, 0.8), 1.0),
+        (
+            [
+                (node.uuid, _node_to_hit(node, 0.7))
+                for node in hybrid_result.nodes
+                if getattr(node, "uuid", None)
+            ],
+            0.75,
+        ),
+    ]
 
+    # Add node-search results with high weight (these are the lex specialis hits)
+    if node_search_edges:
+        ranked_lists.append((node_search_edges, settings.legal_search_bm25_weight * 1.5))
+    if node_search_nodes:
+        ranked_lists.append((node_search_nodes, settings.legal_search_bm25_weight))
+    # Add norm candidate hits
+    if norm_edges:
+        ranked_lists.append((norm_edges, settings.legal_search_bm25_weight * 1.3))
+
+    merged = weighted_rrf_merge(ranked_lists, limit=candidate_limit)
+
+    # ── Step 8: Rescore and filter ───────────────────────────────────────
     rescored = rescore_hits(merged, analysis)
 
     quality = retrieval_quality(rescored)
@@ -191,3 +272,4 @@ async def search_legal_context(query: str, limit: int | None = None) -> list[dic
             rescored = rescore_hits(merged_with_runtime, analysis)
 
     return rescored[:limit]
+

@@ -9,10 +9,15 @@ Regeln:
 1. Jede Gesetzesnorm als LegalNorm mit exakter Zitierung (z.B. „§ 179 Abs. 3 S. 2 BGB").
 2. Tatbestandsmerkmale als eigene Entitäten (z.B. „herrenlos", „Abhandenkommen", „gutgläubig").
 3. Rechtsfolgen als eigene Entitäten (z.B. „Schadensersatz", „Herausgabeanspruch").
-4. Verknüpfe LegalNorm --REQUIRES--> Tatbestandsmerkmal wenn die Norm das Merkmal voraussetzt.
-5. Verknüpfe LegalNorm --IMPLIES--> Rechtsfolge wenn die Norm diese Folge anordnet.
-6. Verknüpfe LegalNorm --REFERENCES--> LegalNorm bei Verweisungsstil (z.B. „entsprechend § 818").
-7. Keine generischen PERSON/ORGANIZATION-Entitäten — nur juristische Begriffe.
+4. Spezifische Rechtsobjekte als LegalSubject (z.B. „Biene", „Schwarm", „Mietsache", „Fundstück", „Bienenstock").
+   WICHTIG: Extrahiere JEDES spezifische Objekt/Tier/Sache das im Normtext vorkommt als LegalSubject.
+   Beispiele: Biene, Schwarm, Bienenstock, Grundstück, Mietsache, Fundstück, Schiff, Fahrzeug.
+5. Verknüpfe LegalNorm --REQUIRES--> Tatbestandsmerkmal wenn die Norm das Merkmal voraussetzt.
+6. Verknüpfe LegalNorm --IMPLIES--> Rechtsfolge wenn die Norm diese Folge anordnet.
+7. Verknüpfe LegalNorm --REFERENCES--> LegalNorm bei Verweisungsstil (z.B. „entsprechend § 818").
+8. Verknüpfe LegalNorm --APPLIES_TO--> LegalSubject wenn die Norm sich auf dieses Objekt bezieht
+   (z.B. § 961 BGB --APPLIES_TO--> Biene, § 961 BGB --APPLIES_TO--> Schwarm).
+9. Keine generischen PERSON/ORGANIZATION-Entitäten — nur juristische Begriffe.
 """
 
 
@@ -43,6 +48,15 @@ class Rechtsfolge(BaseModel):
     )
 
 
+class LegalSubject(BaseModel):
+    """Specific real-world subject governed by a norm (e.g., Biene, Mietsache, Fundstück)."""
+
+    term: str = Field(description="German noun, e.g. Biene, Schwarm, Fundstück, Mietsache")
+    category: str | None = Field(
+        default=None, description="Category: Tier, Sache, Person, Recht, Objekt"
+    )
+
+
 class RequiresRelation(BaseModel):
     """LegalNorm REQUIRES Tatbestandsmerkmal."""
 
@@ -66,24 +80,36 @@ class ReferencesRelation(BaseModel):
     )
 
 
+class AppliesToRelation(BaseModel):
+    """LegalNorm APPLIES_TO LegalSubject — norm governs this specific subject."""
+
+    description: str = Field(
+        description="How the norm relates to this subject, e.g. regelt Eigentum an Bienenschwärmen"
+    )
+
+
 LEGAL_ENTITY_TYPES: dict[str, type[BaseModel]] = {
     "LegalNorm": LegalNorm,
     "Tatbestandsmerkmal": Tatbestandsmerkmal,
     "Rechtsfolge": Rechtsfolge,
+    "LegalSubject": LegalSubject,
 }
 
 LEGAL_EDGE_TYPES: dict[str, type[BaseModel]] = {
     "REQUIRES": RequiresRelation,
     "IMPLIES": ImpliesRelation,
     "REFERENCES": ReferencesRelation,
+    "APPLIES_TO": AppliesToRelation,
 }
 
 LEGAL_EDGE_TYPE_MAP: dict[tuple[str, str], list[str]] = {
     ("LegalNorm", "Tatbestandsmerkmal"): ["REQUIRES"],
     ("LegalNorm", "Rechtsfolge"): ["IMPLIES"],
     ("LegalNorm", "LegalNorm"): ["REFERENCES"],
+    ("LegalNorm", "LegalSubject"): ["APPLIES_TO"],
     ("Tatbestandsmerkmal", "Rechtsfolge"): ["IMPLIES"],
-    ("Entity", "Entity"): ["REFERENCES", "REQUIRES", "IMPLIES"],
+    ("LegalSubject", "LegalNorm"): ["APPLIES_TO"],
+    ("Entity", "Entity"): ["REFERENCES", "REQUIRES", "IMPLIES", "APPLIES_TO"],
 }
 
 LEGAL_EXCLUDED_ENTITY_TYPES = [

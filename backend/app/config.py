@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     legal_search_runtime_fetch: bool = True
     legal_search_min_quality: float = 0.12
     legal_search_runtime_weight: float = 4.0
+    legal_search_rewrite_queries: bool = True
+    legal_search_specificity_bonus: float = 0.25
 
     @property
     def cors_origin_list(self) -> list[str]:

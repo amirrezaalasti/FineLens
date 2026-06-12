@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   ChatMessage,
   ChatSession,
   ChatSessionSummary,
@@ -27,8 +28,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export async function sendChat(
   message: string,
   userId: string,
-  history: { role: string; content: string }[],
-  sessionId?: string | null
+  history: { role: string; content: string; attachments?: Attachment[] }[],
+  sessionId?: string | null,
+  attachments?: Attachment[]
 ) {
   return request<{
     answer: string;
@@ -44,8 +46,24 @@ export async function sendChat(
       user_id: userId,
       history,
       session_id: sessionId || null,
+      attachments: attachments || [],
     }),
   });
+}
+
+export async function uploadFile(file: File): Promise<Attachment> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/chat/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `Upload error ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function listChatSessions(userId: string) {

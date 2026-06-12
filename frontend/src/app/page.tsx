@@ -53,13 +53,9 @@ export default function Home() {
         const list = await refreshSessions();
         if (cancelled) return;
 
-        const storedId = localStorage.getItem(SESSION_STORAGE_KEY);
-        const storedExists = storedId && list.some((s) => s.id === storedId);
-
-        if (storedExists) {
-          setActiveSessionId(storedId);
-        } else if (list.length > 0) {
-          setActiveSessionId(list[0].id);
+        const emptySession = list.find((s) => s.message_count === 0);
+        if (emptySession) {
+          setActiveSessionId(emptySession.id);
         } else {
           const session = await createChatSession(USER_ID);
           if (!cancelled) {
@@ -79,12 +75,6 @@ export default function Home() {
       cancelled = true;
     };
   }, [refreshSessions]);
-
-  useEffect(() => {
-    if (activeSessionId) {
-      localStorage.setItem(SESSION_STORAGE_KEY, activeSessionId);
-    }
-  }, [activeSessionId]);
 
   const handleNewChat = async () => {
     const session = await createChatSession(USER_ID);

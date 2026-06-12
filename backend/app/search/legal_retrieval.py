@@ -138,11 +138,11 @@ def _predicted_norms_cover_candidates(
     return False
 
 
-async def search_legal_context(query: str, limit: int | None = None) -> list[dict[str, Any]]:
+async def search_legal_context(query: str, limit: int | None = None, history: list = None) -> list[dict[str, Any]]:
     limit = limit or settings.legal_search_limit
 
     # ── Step 1: Rewrite the query via LLM to extract legal keywords ──────
-    rewritten = await rewrite_query(query)
+    rewritten = await rewrite_query(query, history=history)
     logger.info(
         "Query rewriter: subjects=%s, keywords=%s, norms=%s",
         rewritten.legal_subjects,

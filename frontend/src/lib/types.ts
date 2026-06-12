@@ -47,12 +47,19 @@ export interface LegalForm {
   legal_basis: string[];
 }
 
+export interface Attachment {
+  name: string;
+  content: string;
+  file_type: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
   transparency_note?: string;
   suggested_forms?: LegalForm[];
+  attachments?: Attachment[];
 }
 
 export interface ChatSessionSummary {

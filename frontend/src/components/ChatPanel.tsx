@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Send, Mic, MicOff } from "lucide-react";
-import { getChatSession, sendChat } from "@/lib/api";
-import type { ChatMessage, LegalForm } from "@/lib/types";
+import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File } from "lucide-react";
+import { getChatSession, sendChat, uploadFile } from "@/lib/api";
+import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
 
 interface ChatPanelProps {
@@ -41,6 +41,44 @@ export function ChatPanel({
   const baseInputRef = useRef("");
   const isListeningRef = useRef(false);
   const lastToggleRef = useRef(0);
+
+  // New state variables for attachments
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    const newAttachments: Attachment[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const att = await uploadFile(files[i]);
+        newAttachments.push(att);
+      } catch (err) {
+        console.error("Failed to upload file:", err);
+        alert(`Fehler beim Hochladen von ${files[i].name}: ${err instanceof Error ? err.message : "Unbekannter Fehler"}`);
+      }
+    }
+
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    setUploading(false);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   // Check SpeechRecognition support on mount
   useEffect(() => {
@@ -226,22 +264,29 @@ export function ChatPanel({
     };
   }, [sessionId, userId]);
 
-  const handleSend = async (text?: string) => {
+  const handleSend = async (text?: string, currentAttachments?: Attachment[]) => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop();
     }
 
     const msg = (text ?? input).trim();
-    if (!msg || loading) return;
+    const attsToSend = currentAttachments ?? attachments;
+
+    if ((!msg && attsToSend.length === 0) || loading) return;
 
     setInput("");
-    const userMsg: ChatMessage = { role: "user", content: msg };
+    setAttachments([]);
+    const userMsg: ChatMessage = { role: "user", content: msg, attachments: attsToSend };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const res = await sendChat(msg, userId, history, sessionId);
+      const history = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        attachments: m.attachments,
+      }));
+      const res = await sendChat(msg, userId, history, sessionId, attsToSend);
 
       if (res.session_id && res.session_id !== sessionId) {
         onSessionIdChange(res.session_id);
@@ -326,7 +371,30 @@ export function ChatPanel({
                     <AssistantMessage content={m.content} citations={m.citations} />
                   </div>
                 ) : (
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  <div>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    {m.attachments && m.attachments.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/10 pt-2">
+                        {m.attachments.map((att, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-1 rounded bg-white/10 border border-white/20 px-1.5 py-0.5 text-xs text-white"
+                          >
+                            {att.file_type.startsWith("image/") ? (
+                              <FileImage className="h-3 w-3 text-white/80" />
+                            ) : att.file_type === "application/pdf" ? (
+                              <FileText className="h-3 w-3 text-white/80" />
+                            ) : (
+                              <File className="h-3 w-3 text-white/80" />
+                            )}
+                            <span className="max-w-[120px] truncate" title={att.name}>
+                              {att.name}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {m.citations && m.citations.length > 0 && (
                   <p className="mt-2 border-t border-navy/10 pt-2 text-[10px] text-slate-400">
@@ -361,6 +429,45 @@ export function ChatPanel({
       )}
 
       <div className="border-t border-navy/10 p-4">
+        {/* Uploaded attachments preview */}
+        {attachments.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {attachments.map((att, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy"
+              >
+                {att.file_type.startsWith("image/") ? (
+                  <FileImage className="h-3.5 w-3.5 text-navy/70" />
+                ) : att.file_type === "application/pdf" ? (
+                  <FileText className="h-3.5 w-3.5 text-navy/70" />
+                ) : (
+                  <File className="h-3.5 w-3.5 text-navy/70" />
+                )}
+                <span className="font-medium max-w-[150px] truncate" title={att.name}>
+                  {att.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(idx)}
+                  className="rounded-full p-0.5 hover:bg-navy/10 text-slate-400 hover:text-navy transition cursor-pointer"
+                  title="Entfernen"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Uploading progress / loading */}
+        {uploading && (
+          <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
+            <span>Datei wird verarbeitet...</span>
+          </div>
+        )}
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -373,32 +480,56 @@ export function ChatPanel({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={isListening ? "Zuhören..." : "Ihre Rechtsfrage stellen..."}
-              className="w-full rounded-xl border border-navy/15 bg-white pl-4 pr-12 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75"
-              disabled={loading || loadingSession}
+              className={`w-full rounded-xl border border-navy/15 bg-white pl-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75 ${
+                isSpeechSupported ? "pr-20" : "pr-12"
+              }`}
+              disabled={loading || loadingSession || uploading}
             />
-            {isSpeechSupported && (
+            <div className="absolute right-2 flex items-center gap-1 z-10">
+              {/* File Upload Button */}
               <button
                 type="button"
-                onClick={toggleListening}
-                disabled={loading || loadingSession}
-                className={`absolute right-3 z-10 cursor-pointer p-1.5 rounded-lg transition-all duration-300 ${
-                  isListening
-                    ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
-                    : "text-slate-400 hover:text-navy hover:bg-slate-100"
-                }`}
-                title={isListening ? "Zuhören stoppen" : "Spracheingabe starten"}
+                onClick={triggerFileInput}
+                disabled={loading || loadingSession || uploading}
+                className="text-slate-400 hover:text-navy hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                title="Datei hochladen (PDF, Bild, Text)"
               >
-                {isListening ? (
-                  <MicOff className="h-4 w-4" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
+                <Paperclip className="h-4 w-4" />
               </button>
-            )}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*,application/pdf,text/*"
+                className="hidden"
+                multiple
+              />
+
+              {/* Microphone Button */}
+              {isSpeechSupported && (
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  disabled={loading || loadingSession || uploading}
+                  className={`cursor-pointer p-1.5 rounded-lg transition-all duration-300 ${
+                    isListening
+                      ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
+                      : "text-slate-400 hover:text-navy hover:bg-slate-100"
+                  }`}
+                  title={isListening ? "Zuhören stoppen" : "Spracheingabe starten"}
+                >
+                  {isListening ? (
+                    <MicOff className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           <button
             type="submit"
-            disabled={loading || loadingSession || !input.trim()}
+            disabled={loading || loadingSession || uploading || (!input.trim() && attachments.length === 0)}
             className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
           >
             <Send className="h-4 w-4" />

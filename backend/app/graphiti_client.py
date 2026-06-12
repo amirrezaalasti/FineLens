@@ -222,7 +222,7 @@ async def add_user_episode(user_id: str, content: str, label: str = "user_contex
     return episode_id
 
 
-async def search_legal_context(query: str, limit: int = 8) -> list[dict[str, Any]]:
+async def search_legal_context(query: str, limit: int = 8, history: list = None) -> list[dict[str, Any]]:
     from app.search.legal_retrieval import search_legal_context as legal_search
 
-    return await legal_search(query, limit=limit)
+    return await legal_search(query, limit=limit, history=history)

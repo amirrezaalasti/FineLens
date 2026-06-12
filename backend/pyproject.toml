@@ -12,6 +12,8 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
     "openai>=1.60.0",
+    "pypdf>=5.0.0",
+    "python-multipart>=0.0.18",
 ]
 
 [project.optional-dependencies]

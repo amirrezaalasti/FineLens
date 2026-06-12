@@ -52,9 +52,16 @@ class Citation(BaseModel):
     ref_number: int = 0
 
 
+class Attachment(BaseModel):
+    name: str
+    content: str
+    file_type: str
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class StoredChatMessage(BaseModel):
@@ -63,6 +70,7 @@ class StoredChatMessage(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     transparency_note: str = ""
     suggested_forms: list["LegalForm"] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class ChatSession(BaseModel):
@@ -90,6 +98,7 @@ class ChatRequest(BaseModel):
     user_id: str = "default"
     session_id: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class FormField(BaseModel):

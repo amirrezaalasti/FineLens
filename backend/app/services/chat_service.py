@@ -51,11 +51,12 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
     answer_style = classify_query(request.message, profile)
 
     # Run query rewriter to get predicted norms (used for context hints)
-    rewritten = await rewrite_query(request.message)
+    rewritten = await rewrite_query(request.message, history=request.history)
 
     context_hits = await search_legal_context(
         request.message,
         limit=settings.legal_search_limit,
+        history=request.history,
     )
 
     citations: list[Citation] = []
@@ -116,9 +117,22 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in request.history[-6:]:
-        messages.append({"role": msg.role, "content": msg.content})
+        content = msg.content
+        if msg.attachments:
+            attachment_text = "\nAngehängte Dokumente / Dateien:\n"
+            for att in msg.attachments:
+                attachment_text += f"--- DATEI: {att.name} ({att.file_type}) ---\n{att.content}\n--- ENDE DATEI ---\n"
+            content = f"{content}\n{attachment_text}"
+        messages.append({"role": msg.role, "content": content})
 
-    prompt = build_user_prompt(context_block, user_context, request.message, answer_style)
+    current_message_content = request.message
+    if request.attachments:
+        attachment_text = "\nAngehängte Dokumente / Dateien:\n"
+        for att in request.attachments:
+            attachment_text += f"--- DATEI: {att.name} ({att.file_type}) ---\n{att.content}\n--- ENDE DATEI ---\n"
+        current_message_content = f"{current_message_content}\n{attachment_text}"
+
+    prompt = build_user_prompt(context_block, user_context, current_message_content, answer_style)
     messages.append({"role": "user", "content": prompt})
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -187,7 +201,11 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
 
     append_messages(
         session.id,
-        StoredChatMessage(role="user", content=request.message),
+        StoredChatMessage(
+            role="user",
+            content=request.message,
+            attachments=request.attachments,
+        ),
         StoredChatMessage(
             role="assistant",
             content=answer,

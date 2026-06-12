@@ -12,17 +12,23 @@ CHATS_FILE = DATA_DIR / "chats.json"
 def _ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not CHATS_FILE.exists():
-        CHATS_FILE.write_text("{}")
+        CHATS_FILE.write_text("{}", encoding="utf-8")
 
 
 def _load_all() -> dict[str, dict]:
     _ensure_data_dir()
-    return json.loads(CHATS_FILE.read_text())
+    content = CHATS_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return {}
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}
 
 
 def _save_all(sessions: dict[str, dict]) -> None:
     _ensure_data_dir()
-    CHATS_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False, default=str))
+    CHATS_FILE.write_text(json.dumps(sessions, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
 def _session_title_from_message(message: str) -> str:

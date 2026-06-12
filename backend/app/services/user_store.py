@@ -10,17 +10,23 @@ PROFILES_FILE = DATA_DIR / "profiles.json"
 def _ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not PROFILES_FILE.exists():
-        PROFILES_FILE.write_text("{}")
+        PROFILES_FILE.write_text("{}", encoding="utf-8")
 
 
 def _load_all() -> dict[str, dict]:
     _ensure_data_dir()
-    return json.loads(PROFILES_FILE.read_text())
+    content = PROFILES_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return {}
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}
 
 
 def _save_all(profiles: dict[str, dict]) -> None:
     _ensure_data_dir()
-    PROFILES_FILE.write_text(json.dumps(profiles, indent=2, ensure_ascii=False))
+    PROFILES_FILE.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def get_profile(user_id: str) -> UserProfile:

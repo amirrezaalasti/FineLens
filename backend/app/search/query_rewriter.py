@@ -34,6 +34,8 @@ Regeln:
 4. Nenne auch Lex-specialis-Normen wenn du sie kennst.
 5. Ignoriere Personennamen (Anton, Berta, Carl) — nur juristische Begriffe.
 6. search_keywords soll 4-8 prägnante Begriffe enthalten, die für BM25-Suche optimal sind.
+7. Falls der Gesprächsverlauf vorliegt, nutze ihn um unvollständige Folgefragen (z.B. "Ist das legal?", "Und bei Mietwohnung?") zu kontextualisieren und zu vervollständigen.
+8. Falls die Nutzerfrage in einer anderen Sprache als Deutsch ist (z. B. Englisch), übersetze die juristischen Konzepte ins Deutsche, um die entsprechenden deutschen Suchbegriffe und Normen zu generieren.
 """
 
 
@@ -127,7 +129,7 @@ def _fallback_extract(query: str) -> RewrittenQuery:
 
 # ── LLM-powered rewriter ───────────────────────────────────────────────────
 
-async def rewrite_query(query: str) -> RewrittenQuery:
+async def rewrite_query(query: str, history: list = None) -> RewrittenQuery:
     """Rewrite a user query into structured legal search terms.
 
     Uses gpt-4o-mini for speed and cost (~0.15¢ per call).
@@ -139,12 +141,22 @@ async def rewrite_query(query: str) -> RewrittenQuery:
     try:
         from openai import AsyncOpenAI
 
+        user_content = query
+        if history:
+            history_context = "Gesprächsverlauf:\n"
+            for msg in history[-4:]:
+                role = getattr(msg, "role", None) or msg.get("role", "")
+                content = getattr(msg, "content", None) or msg.get("content", "")
+                role_label = "Nutzer" if role == "user" else "Assistent"
+                history_context += f"{role_label}: {content}\n"
+            user_content = f"{history_context}\nAktuelle Folgefrage: {query}"
+
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         completion = await client.chat.completions.create(
             model="gpt-5.5",
             messages=[
                 {"role": "system", "content": _REWRITE_SYSTEM_PROMPT},
-                {"role": "user", "content": query},
+                {"role": "user", "content": user_content},
             ],
         )
         raw = completion.choices[0].message.content or ""

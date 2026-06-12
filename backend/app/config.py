@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     embedded_db_path: str = "data/graphiti.db"
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: str = "rechtslens123"
+    neo4j_password: str = "finelens123"
     oldp_api_base: str = "https://de.openlegaldata.io/api"
     oldp_api_key: str = ""
     bund_recht_api: str = "https://testphase.rechtsinformationen.bund.de"

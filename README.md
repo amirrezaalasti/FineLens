@@ -1,4 +1,4 @@
-# RechtsLens
+# FineLens
 
 Transparent German legal assistant powered by [Graphiti](https://github.com/getzep/graphiti) knowledge graphs.
 
@@ -17,7 +17,7 @@ Ask legal questions in German, get answers with **source citations** traced back
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
 │  Next.js UI     │────▶│  FastAPI Backend │────▶│  Graphiti   │
-│  (RechtsLens)   │     │  /chat /forms    │     │  + FalkorDB │
+│  (FineLens)     │     │  /chat /forms    │     │  + FalkorDB │
 └─────────────────┘     └────────┬─────────┘     └─────────────┘
                                  │
                     ┌────────────┼────────────┐
@@ -102,4 +102,4 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Disclaimer
 
-RechtsLens provides legal **information**, not legal **advice**. Always consult a qualified attorney for binding guidance.
+FineLens provides legal **information**, not legal **advice**. Always consult a qualified attorney for binding guidance.

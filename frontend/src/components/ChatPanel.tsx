@@ -293,7 +293,7 @@ export function ChatPanel({
               Wie kann ich Ihnen helfen?
             </p>
             <p className="mx-auto max-w-md text-sm text-slate-500">
-              RechtsLens durchsucht deutsche Rechtsquellen über einen Graphiti
+              FineLens durchsucht deutsche Rechtsquellen über einen Graphiti
               Knowledge Graph und zeigt Ihnen transparent, woher jede Information stammt.
             </p>
             <div className="flex flex-wrap justify-center gap-2 pt-2">

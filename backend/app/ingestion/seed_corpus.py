@@ -11,14 +11,13 @@ from app.models.schemas import LegalSource
 
 logger = logging.getLogger(__name__)
 
-# Diverse OLDP anchors across BGB domains (generalized, not single-topic)
+# Diverse OLDP anchors across OWiG and StVG domains (fines, traffic, violations)
 OLDP_SEED_QUERIES = [
-    "903 BGB",
-    "823 BGB",
-    "961 BGB",
-    "812 BGB",
-    "558 BGB",
-    "15 DSGVO",
+    "17 OWiG",
+    "35 OWiG",
+    "24a StVG",
+    "21 StVG",
+    "28 StVG",
 ]
 
 
@@ -34,18 +33,18 @@ async def seed_legal_corpus() -> dict[str, int]:
             logger.warning("OLDP seed failed for %s: %s", query, exc)
 
     results[LegalSource.GESETZE_IM_INTERNET.value] = await ingest_from_gesetze(
-        3, ["bgb", "stgb", "gg"]
+        3, ["owig", "stvg", "stgb"]
     )
 
     try:
-        results[LegalSource.RECHT_BUND.value] = await ingest_from_bund("BGB Eigentum", 3)
+        results[LegalSource.RECHT_BUND.value] = await ingest_from_bund("Bußgeld Ordnungswidrigkeit", 3)
     except Exception as exc:
         logger.warning("Bund seed failed: %s", exc)
         results[LegalSource.RECHT_BUND.value] = 0
 
     bgb_paras = bgb_seed_paragraphs()
     results[LegalSource.BUZER.value] = await ingest_from_buzer(
-        "", len(bgb_paras), "BGB"
+        "", len(bgb_paras), "OWiG"
     )
 
     results[LegalSource.BECK_ONLINE.value] = await ingest_reference_sources(

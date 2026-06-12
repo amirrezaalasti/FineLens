@@ -20,7 +20,7 @@ import type { ChatMessage, ChatSessionSummary, Citation, LegalForm } from "@/lib
 type Tab = "chat" | "profile" | "forms" | "sources";
 
 const USER_ID = "default";
-const SESSION_STORAGE_KEY = `rechtslens-active-session-${USER_ID}`;
+const SESSION_STORAGE_KEY = `finelens-active-session-${USER_ID}`;
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("chat");
@@ -187,7 +187,7 @@ export default function Home() {
       </main>
 
       <footer className="shrink-0 border-t border-navy/10 bg-navy/5 py-2 text-center text-xs text-slate-500">
-        RechtsLens · Keine Rechtsberatung · Daten: Open Legal Data, Gesetze im Internet,
+        FineLens · Keine Rechtsberatung · Daten: Open Legal Data, Gesetze im Internet,
         recht.bund.de · Engine:{" "}
         <a
           href="https://github.com/getzep/graphiti"

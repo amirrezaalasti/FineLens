@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-const STORAGE_KEY = "rechtslens-panel-widths";
+const STORAGE_KEY = "finelens-panel-widths";
 
 interface PanelWidths {
   sidebar: number;

@@ -11,7 +11,7 @@ from app.ingestion.seed_corpus import seed_legal_corpus
 
 
 async def main() -> None:
-    print("Seeding RechtsLens knowledge graph from all sources...")
+    print("Seeding FineLens knowledge graph from all sources...")
     results = await seed_legal_corpus()
     total = sum(results.values())
     for source, count in results.items():

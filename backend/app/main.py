@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="RechtsLens API",
+    title="FineLens API",
     description="Transparenter juristischer Assistent mit Graphiti Knowledge Graph",
     version="0.1.0",
     lifespan=lifespan,
@@ -59,7 +59,7 @@ app.include_router(ingest.router)
 @app.get("/")
 async def root():
     return {
-        "name": "RechtsLens",
+        "name": "FineLens",
         "tagline": "Transparente Rechtsinformation mit Graphiti",
         "docs": "/docs",
     }

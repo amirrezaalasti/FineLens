@@ -109,6 +109,33 @@ FORM_TEMPLATES: dict[str, dict] = {
             {"id": "position", "label": "Position / Tätigkeit", "required": True},
         ],
     },
+    "bussgeld-einspruch": {
+        "title": "Einspruch gegen Bußgeldbescheid",
+        "description": "Fristgerechter Einspruch gegen einen Bußgeldbescheid gem. § 67 OWiG.",
+        "category": "Verkehrsrecht / Ordnungswidrigkeiten",
+        "legal_basis": ["§ 67 OWiG"],
+        "source_url": "https://www.gesetze-im-internet.de/owig_1968/__67.html",
+        "field_map": {
+            "applicant_name": ("last_name", "first_name"),
+            "applicant_address": ("street", "postal_code", "city"),
+            "authority_name": None,
+            "file_number": None,
+            "objection_reason": ("case_description",),
+        },
+        "fields": [
+            {"id": "applicant_name", "label": "Ihr Name", "required": True},
+            {"id": "applicant_address", "label": "Ihre Adresse", "required": True},
+            {"id": "authority_name", "label": "Ausstellende Behörde", "required": True},
+            {"id": "file_number", "label": "Aktenzeichen des Bescheids", "required": True},
+            {
+                "id": "objection_reason",
+                "label": "Begründung des Einspruchs",
+                "type": "textarea",
+                "required": True,
+                "placeholder": "z.B. Messfehler, Fahrer war eine andere Person, Verjährung...",
+            },
+        ],
+    },
 }
 
 TOPIC_TO_FORM: dict[str, str] = {
@@ -124,6 +151,14 @@ TOPIC_TO_FORM: dict[str, str] = {
     "arbeitszeugnis": "arbeitszeugnis",
     "arbeit": "arbeitszeugnis",
     "arbeitsrecht": "arbeitszeugnis",
+    "bußgeld": "bussgeld-einspruch",
+    "bussgeld": "bussgeld-einspruch",
+    "strafe": "bussgeld-einspruch",
+    "owig": "bussgeld-einspruch",
+    "blitzer": "bussgeld-einspruch",
+    "geblitzt": "bussgeld-einspruch",
+    "stvg": "bussgeld-einspruch",
+    "einspruch": "bussgeld-einspruch",
 }
 
 

@@ -9,13 +9,13 @@ from app.models.schemas import LegalSource
 
 BASE_URL = "https://www.buzer.de"
 
-# Diverse BGB clusters for balanced corpus seeding (not single-domain)
+# Diverse OWiG clusters for fine and penalty seeding
 BGB_SEED_CLUSTERS: dict[str, list[str]] = {
-    "eigentum_allgemein": ["903", "985", "986"],
-    "tierbesitz_fundrecht": ["958", "959", "960", "961", "962", "963", "964"],
-    "deliktsrecht": ["823", "826", "831"],
-    "bereicherung": ["812", "816", "818", "819"],
-    "mietrecht": ["535", "536", "558", "559", "561"],
+    "geldbusse_allgemein": ["17", "18", "19"],
+    "verjaehrung": ["31", "32", "33", "34"],
+    "einspruchsverfahren": ["67", "68", "69", "70", "71"],
+    "verkehrsstrafen_stvg": ["21", "24", "24a"],
+    "rechtsbeschwerde": ["79", "80"],
 }
 
 
@@ -29,9 +29,9 @@ def bgb_seed_paragraphs() -> list[str]:
 
 
 DEFAULT_PARAGRAPHS: dict[str, list[str]] = {
-    "BGB": bgb_seed_paragraphs(),
-    "GG": ["1", "2", "3"],
-    "DSGVO": ["15", "17", "77"],
+    "OWIG": bgb_seed_paragraphs(),
+    "STVG": ["21", "24", "24a"],
+    "STGB": ["1", "2", "3"],
 }
 
 
@@ -91,7 +91,7 @@ async def fetch_law_paragraph(paragraph: str, law_code: str) -> tuple[str, str, 
     path = f"/{paragraph}_{law_code}.htm"
     url = f"{BASE_URL}{path}"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        resp = await client.get(url, headers={"User-Agent": "RechtsLens/0.1"})
+        resp = await client.get(url, headers={"User-Agent": "FineLens/0.1"})
         resp.raise_for_status()
         html = resp.text
 
@@ -105,7 +105,7 @@ async def _fetch_toc_paragraphs(law_code: str, limit: int) -> list[str]:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(
             f"{BASE_URL}/{law_code}.htm",
-            headers={"User-Agent": "RechtsLens/0.1"},
+            headers={"User-Agent": "FineLens/0.1"},
         )
         resp.raise_for_status()
         html = resp.text
@@ -126,7 +126,7 @@ async def _fetch_feed_items(limit: int) -> list[tuple[str, str, str]]:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(
             f"{BASE_URL}/gesetze_feed.xml",
-            headers={"User-Agent": "RechtsLens/0.1"},
+            headers={"User-Agent": "FineLens/0.1"},
         )
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
@@ -143,9 +143,9 @@ async def _fetch_feed_items(limit: int) -> list[tuple[str, str, str]]:
 async def ingest_from_buzer(
     query: str = "",
     limit: int = 5,
-    law_book: str = "BGB",
+    law_book: str = "OWiG",
 ) -> int:
-    law_code = (law_book or "BGB").upper()
+    law_code = (law_book or "OWiG").upper()
     paragraph, parsed_law = _parse_query(query)
     if parsed_law:
         law_code = parsed_law

@@ -56,7 +56,7 @@ export default function DemoPage() {
               <Scale className="h-4 w-4 text-gold-light" />
             </div>
             <span className="font-serif text-lg font-semibold">
-              Rechts<span className="text-gold-light">Lens</span>
+              Fine<span className="text-gold-light">Lens</span>
             </span>
             <span className="hidden rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold-light sm:inline">
               Demo
@@ -100,7 +100,7 @@ export default function DemoPage() {
               <span className="text-gold-light">Knowledge Graph</span>
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-relaxed text-white/65">
-              RechtsLens extrahiert aus deutschen Rechtstexten Normen, Tatbestandsmerkmale,
+              FineLens extrahiert aus deutschen Rechtstexten Normen, Tatbestandsmerkmale,
               Rechtsfolgen und Rechtsobjekte — und durchsucht sie hybrid für nachvollziehbare
               Antworten mit Quellennachweis.
             </p>
@@ -257,7 +257,7 @@ export default function DemoPage() {
       <section className="bg-navy px-5 py-16 text-center text-white">
         <div className="mx-auto max-w-xl">
           <h2 className="font-serif text-2xl font-semibold sm:text-3xl">
-            Bereit, RechtsLens auszuprobieren?
+            Bereit, FineLens auszuprobieren?
           </h2>
           <p className="mt-3 text-white/60">
             Stellen Sie eine juristische Frage, erhalten Sie Zitate und vorausgefüllte Formulare.
@@ -273,7 +273,7 @@ export default function DemoPage() {
       </section>
 
       <footer className="border-t border-navy/10 bg-cream py-6 text-center text-xs text-navy/45">
-        RechtsLens · Keine Rechtsberatung · Engine:{" "}
+        FineLens · Keine Rechtsberatung · Engine:{" "}
         <a
           href="https://github.com/getzep/graphiti"
           className="text-navy hover:text-gold"

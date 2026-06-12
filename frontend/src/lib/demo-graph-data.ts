@@ -67,7 +67,7 @@ export const TIERBESITZ_DEMO: DemoGraph = {
 export const MIETRECHT_DEMO: DemoGraph = {
   id: "mietrecht",
   title: "Mietrecht",
-  subtitle: "§ 558 BGB · RechtsLens Mietwiderspruch",
+  subtitle: "§ 558 BGB · FineLens Mietwiderspruch",
   statute:
     "§ 558 Abs. 1 BGB: Der Vermieter kann die Zustimmung zu einer Erhöhung der Miete bis zur ortsüblichen Vergleichsmiete verlangen, wenn die Miete seit 15 Monaten unverändert ist.",
   sourceUrl: "https://www.gesetze-im-internet.de/bgb/__558.html",

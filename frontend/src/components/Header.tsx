@@ -27,7 +27,7 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
           </div>
           <div>
             <h1 className="font-serif text-xl font-semibold tracking-tight">
-              Rechts<span className="text-gold-light">Lens</span>
+              Fine<span className="text-gold-light">Lens</span>
             </h1>
             <p className="hidden text-xs text-white/60 sm:block">
               Powered by Graphiti · Transparente Quellen

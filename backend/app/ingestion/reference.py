@@ -28,7 +28,7 @@ REFERENCE_ENTRIES: dict[LegalSource, list[tuple[str, str, str]]] = {
         (
             "juris Urteile BGH/BVerfG (Referenz)",
             "Über juris sind Entscheidungen des BGH, BVerfG und weiterer Gerichte recherchierbar. "
-            "RechtsLens verweist hierauf als ergänzende Referenzquelle.",
+            "FineLens verweist hierauf als ergänzende Referenzquelle.",
             "https://www.juris.de/",
         ),
     ],

@@ -38,7 +38,8 @@ Regeln:
 8. Falls die Nutzerfrage in einer anderen Sprache als Deutsch ist (z. B. Englisch), übersetze die juristischen Konzepte ins Deutsche, um die entsprechenden deutschen Suchbegriffe und Normen zu generieren.
 9. Falls ein Dokument (Bußgeldbescheid, Vertrag, Bescheid) im Text enthalten ist: extrahiere ALLE §-Verweise aus dem Dokument und nenne die einschlägigen Normen (z.B. § 24 StVG, § 67 OWiG, § 26 StVG bei Geschwindigkeitsüberschreitung).
 10. Bei Bußgeldbescheiden/Verkehrsordnungswidrigkeiten: nenne § 24/§ 24a StVG, § 49 StVG, § 67 OWiG (Einspruch), § 26 StVG (Verjährung), § 31 OWiG.
-11. Ignoriere Dateinamen und Platzhaltertext — lies den Dokumentinhalt vollständig.
+11. Bei BAföG-Rückbescheiden: nenne § 20 BAföG, § 50 BAföG, § 45 SGB X.
+12. Ignoriere Dateinamen und Platzhaltertext — lies den Dokumentinhalt vollständig.
 """
 
 
@@ -80,7 +81,9 @@ class RewrittenQuery:
 # ── Regex-based fallback extractor ──────────────────────────────────────────
 
 _LEGAL_NOUN_RE = re.compile(r"\b[A-ZÄÖÜ][a-zäöüß]{2,}\b")
-_NORM_RE = re.compile(r"§\s*\d+[a-z]?\s*(?:Abs\.?\s*\d+)?\s*(?:S\.?\s*\d+)?\s*[A-ZÄÖÜ]{2,10}", re.I)
+_NORM_RE = re.compile(
+    r"§\s*\d+[a-z]?\s*(?:Abs\.?\s*\d+)?\s*(?:S\.?\s*\d+)?\s*[A-ZÄÖÜ]{2,10}", re.I
+)
 _GERMAN_STOPWORDS = frozenset(
     "eine einer eines einem einen und oder der die das den dem des mit von für auf "
     "bei ist sind war waren wird wurden kann können soll sollen muss müssen nicht "
@@ -93,9 +96,22 @@ _PERSON_NAMES = frozenset(
 )
 
 _LEGAL_SUBJECT_HINTS = {
-    "biene", "bienen", "schwarm", "bienenschwarm", "bienenstock",
-    "fund", "fundstück", "finder", "tier", "wildtier", "haustier",
-    "mietsache", "mietwohnung", "grundstück", "fahrzeug", "schiff",
+    "biene",
+    "bienen",
+    "schwarm",
+    "bienenschwarm",
+    "bienenstock",
+    "fund",
+    "fundstück",
+    "finder",
+    "tier",
+    "wildtier",
+    "haustier",
+    "mietsache",
+    "mietwohnung",
+    "grundstück",
+    "fahrzeug",
+    "schiff",
 }
 
 
@@ -117,7 +133,7 @@ def _fallback_extract(query: str) -> RewrittenQuery:
             keywords.append(noun)
 
     law_codes: list[str] = []
-    for code in ("BGB", "STGB", "GG", "DSGVO", "HGB", "ZPO"):
+    for code in ("BGB", "STGB", "GG", "DSGVO", "HGB", "ZPO", "BAFÖG", "SGB"):
         if code in query.upper():
             law_codes.append(code)
 
@@ -131,6 +147,7 @@ def _fallback_extract(query: str) -> RewrittenQuery:
 
 
 # ── LLM-powered rewriter ───────────────────────────────────────────────────
+
 
 async def rewrite_query(query: str, history: list = None) -> RewrittenQuery:
     """Rewrite a user query into structured legal search terms.
@@ -156,7 +173,7 @@ async def rewrite_query(query: str, history: list = None) -> RewrittenQuery:
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         completion = await client.chat.completions.create(
-            model="gpt-5.5",
+            model=settings.openai_chat_model,
             messages=[
                 {"role": "system", "content": _REWRITE_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},

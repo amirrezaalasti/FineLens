@@ -18,7 +18,12 @@ from app.models.schemas import (
     ExtractedField,
 )
 from app.services.chat_service import generate_answer
-from app.services.chat_store import create_session, delete_session, get_session, list_sessions
+from app.services.chat_store import (
+    create_session,
+    delete_session,
+    get_session,
+    list_sessions,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -83,22 +88,22 @@ WICHTIG zu den Koordinaten in `box`:
 def _rect_to_box(page, rect) -> list[float]:
     pw = page.rect.width
     ph = page.rect.height
-    
+
     top = (rect.y0 / ph) * 100.0
     left = (rect.x0 / pw) * 100.0
     width = ((rect.x1 - rect.x0) / pw) * 100.0
     height = ((rect.y1 - rect.y0) / ph) * 100.0
-    
+
     # Apply minimum sizes for UI rendering
     width = max(width, 3.0)
     height = max(height, 2.0)
-    
+
     # Cap boundaries between 0 and 100%
     top = max(0.0, min(100.0, top))
     left = max(0.0, min(100.0, left))
     width = max(0.0, min(100.0 - left, width))
     height = max(0.0, min(100.0 - top, height))
-    
+
     return [top, left, width, height]
 
 
@@ -108,16 +113,16 @@ def find_text_coordinates(page, value: str) -> list[float] | None:
     val = value.strip()
     if not val:
         return None
-        
+
     val_clean = val.rstrip(".,;: ")
     if not val_clean:
         return None
-        
+
     # 1. Search for the cleaned exact value
     rects = page.search_for(val_clean)
     if rects:
         return _rect_to_box(page, rects[0])
-        
+
     # 2. Split by spaces/newlines and search for the first chunk of length >= 4
     # E.g. date, record number, fine amount
     chunks = [c.strip(".,;:()[] ") for c in val_clean.split()]
@@ -126,7 +131,7 @@ def find_text_coordinates(page, value: str) -> list[float] | None:
         rects = page.search_for(chunk)
         if rects:
             return _rect_to_box(page, rects[0])
-            
+
     return None
 
 
@@ -143,7 +148,7 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
     raw_text = ""
     is_vision = False
     image_input_url = None
-    
+
     doc = None
     first_page = None
     is_pdf = False
@@ -160,13 +165,13 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                 # Load PDF using PyMuPDF (fitz)
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
                 is_pdf = True
-                
+
                 # Extract raw text from all pages
                 text_pages = []
                 for page in doc:
                     text_pages.append(page.get_text())
                 raw_text = "\n".join(text_pages).strip()
-                
+
                 # Generate preview image of first page if document is not empty
                 if len(doc) > 0:
                     first_page = doc[0]
@@ -189,7 +194,7 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                 except Exception as e2:
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Fehler beim Lesen der PDF-Datei: {e} | PyPDF Fallback-Fehler: {e2}"
+                        detail=f"Fehler beim Lesen der PDF-Datei: {e} | PyPDF Fallback-Fehler: {e2}",
                     )
         else:
             # Text or other files
@@ -198,64 +203,56 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
             except Exception as e:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Dateiformat wird nicht unterstützt oder Text konnte nicht dekodiert werden: {e}"
+                    detail=f"Dateiformat wird nicht unterstützt oder Text konnte nicht dekodiert werden: {e}",
                 )
 
         # Call OpenAI to parse and structure the document
         try:
             if is_vision and image_input_url:
                 messages = [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
+                    {"role": "system", "content": SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Bitte transkribiere das angehängte Dokument und extrahiere alle Schlüsseldaten mit präzisen visuellen Koordinaten im Bereich 0 bis 1000 [ymin, xmin, ymax, xmax] im vorgegebenen JSON-Format."
+                                "text": "Bitte transkribiere das angehängte Dokument und extrahiere alle Schlüsseldaten mit präzisen visuellen Koordinaten im Bereich 0 bis 1000 [ymin, xmin, ymax, xmax] im vorgegebenen JSON-Format.",
                             },
                             {
                                 "type": "image_url",
-                                "image_url": {
-                                    "url": image_input_url
-                                }
-                            }
-                        ]
-                    }
+                                "image_url": {"url": image_input_url},
+                            },
+                        ],
+                    },
                 ]
             else:
                 messages = [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
+                    {"role": "system", "content": SYSTEM_PROMPT},
                     {
                         "role": "user",
-                        "content": f"Hier ist der Textinhalt des hochgeladenen Dokuments:\n\n{raw_text}\n\nBitte analysiere dieses Dokument und extrahiere die Schlüsseldaten im vorgegebenen JSON-Format."
-                    }
+                        "content": f"Hier ist der Textinhalt des hochgeladenen Dokuments:\n\n{raw_text}\n\nBitte analysiere dieses Dokument und extrahiere die Schlüsseldaten im vorgegebenen JSON-Format.",
+                    },
                 ]
 
             response = await client.chat.completions.create(
-                model="gpt-5.5",
+                model=settings.openai_chat_model,
                 messages=messages,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
-            
+
             response_content = response.choices[0].message.content or "{}"
             analysis_data = json.loads(response_content)
-            
+
             extracted_fields = []
             for field in analysis_data.get("fields", []):
                 box = field.get("box")
                 value = field.get("value", "").strip()
                 field_box = None
-                
+
                 # 1. Search text layer if PDF first page is available
                 if is_pdf and first_page and value:
                     field_box = find_text_coordinates(first_page, value)
-                
+
                 # 2. Fallback to OpenAI Vision coordinates if search failed or not a PDF
                 if not field_box and box and len(box) == 4:
                     try:
@@ -264,44 +261,47 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                         left = xmin / 10.0
                         width = (xmax - xmin) / 10.0
                         height = (ymax - ymin) / 10.0
-                        
+
                         width = max(width, 3.0)
                         height = max(height, 2.0)
-                        
+
                         top = max(0.0, min(100.0, top))
                         left = max(0.0, min(100.0, left))
                         width = max(0.0, min(100.0 - left, width))
                         height = max(0.0, min(100.0 - top, height))
-                        
+
                         field_box = [top, left, width, height]
                     except Exception as parse_err:
-                        print(f"Warnung: Fehler beim Konvertieren der Box {box}: {parse_err}")
-                
+                        print(
+                            f"Warnung: Fehler beim Konvertieren der Box {box}: {parse_err}"
+                        )
+
                 extracted_fields.append(
                     ExtractedField(
                         field_name=field.get("field_name", ""),
                         value=field.get("value", ""),
                         box=field_box,
                         confidence=field.get("confidence", 1.0),
-                        is_pii=bool(field.get("is_pii", False))
+                        is_pii=bool(field.get("is_pii", False)),
                     )
                 )
-                
+
             return DocumentAnalysis(
                 fields=extracted_fields,
                 raw_text=analysis_data.get("raw_text") or raw_text or response_content,
-                preview_image_url=preview_image_url
+                preview_image_url=preview_image_url,
             )
 
         except Exception as e:
             # Robust fallback in case OpenAI call or JSON parsing fails
             print(f"ERROR: Fehler bei der Dokumentenanalyse: {e}")
             import traceback
+
             traceback.print_exc()
             return DocumentAnalysis(
                 fields=[],
                 raw_text=raw_text or f"[Fehler bei der Dokumentenanalyse: {e}]",
-                preview_image_url=preview_image_url
+                preview_image_url=preview_image_url,
             )
     finally:
         if doc:
@@ -319,7 +319,7 @@ async def upload_chat_file(file: UploadFile = File(...)) -> Attachment:
         name=file.filename or "file",
         content=analysis.raw_text,
         file_type=file.content_type or "application/octet-stream",
-        analysis=analysis
+        analysis=analysis,
     )
 
 
@@ -341,6 +341,21 @@ async def get_chat_session(session_id: str, user_id: str = "default") -> ChatSes
     return session
 
 
+@router.post("/demo/bafog/seed", response_model=ChatSession)
+async def seed_bafog_demo(session_id: str, user_id: str = "default") -> ChatSession:
+    from app.services.demo_sample import seed_bafog_demo_session
+
+    try:
+        session = await seed_bafog_demo_session(session_id, user_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Demo konnte nicht geladen werden: {e}"
+        ) from e
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat nicht gefunden")
+    return session
+
+
 @router.delete("/sessions/{session_id}")
 async def remove_chat_session(session_id: str, user_id: str = "default") -> dict:
     session = get_session(session_id)
@@ -353,8 +368,12 @@ async def remove_chat_session(session_id: str, user_id: str = "default") -> dict
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     if not request.message.strip() and not request.attachments:
-        raise HTTPException(status_code=400, detail="Nachricht oder Anhang darf nicht leer sein")
+        raise HTTPException(
+            status_code=400, detail="Nachricht oder Anhang darf nicht leer sein"
+        )
     try:
         return await generate_answer(request)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Antwort konnte nicht generiert werden: {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Antwort konnte nicht generiert werden: {e}"
+        ) from e

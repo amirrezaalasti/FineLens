@@ -36,6 +36,35 @@ export const de = {
       evening: "Guten Abend",
     },
     notifications: "Benachrichtigungen",
+    notificationsPanel: {
+      title: "Benachrichtigungen",
+      markAllRead: "Alle gelesen",
+      dismiss: "Benachrichtigung entfernen",
+      close: "Schließen",
+      empty: "Alles erledigt — keine Benachrichtigungen.",
+      items: {
+        bafog: {
+          title: "BAföG-Bescheid ausgewertet",
+          body: "Ihr Beispiel-Rückbescheid wurde verarbeitet. Optionen im Chat prüfen.",
+          time: "Gerade eben",
+        },
+        deadline: {
+          title: "Widerspruchsfrist läuft ab",
+          body: "Für Verwaltungsbescheide gelten oft 14 Tage Widerspruch — Dokument prüfen.",
+          time: "Vor 2 Stunden",
+        },
+        form: {
+          title: "Passendes Formular verfügbar",
+          body: "Ein Widerspruch-Vorlage wurde zu Ihrem Vorgang vorgeschlagen.",
+          time: "Gestern",
+        },
+        profile: {
+          title: "Profil vervollständigen",
+          body: "Tragen Sie Ihre Daten ein, damit Formulare automatisch ausgefüllt werden.",
+          time: "Vor 2 Tagen",
+        },
+      },
+    },
     tabs: {
       chat: "Start",
       profile: "Profil",

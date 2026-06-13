@@ -397,11 +397,64 @@ Mit freundlichen Grüßen
             {"id": "driver_name", "label": "Name des Fahrers", "required": True},
             {"id": "driver_address", "label": "Adresse des Fahrers", "required": True},
             {"id": "driver_birthdate", "label": "Geburtsdatum des Fahrers", "type": "date", "required": True},
+            {"id": "letter_date", "label": "Datum des Schreibens", "type": "date", "required": True},
+        ],
+    },
+    "bafoeg-widerspruch": {
+        "title": "Widerspruch gegen BAföG-Rückbescheid",
+        "description": "Formular zur Geltendmachung eines Widerspruchs gegen einen BAföG-Rückforderungsbescheid (z.B. vom Bundesverwaltungsamt).",
+        "category": "Verwaltungsrecht / BAföG",
+        "legal_basis": ["§ 20 BAföG", "§ 50 BAföG", "§ 45 SGB X"],
+        "source_url": "https://www.gesetze-im-internet.de/baf_g/__20.html",
+        "body_template": """\
+{{authority_name}}
+[Straße, PLZ Ort der Behörde]
+
+Aktenzeichen / Förderungsnummer: {{file_number}}
+
+{{applicant_city}}, den {{letter_date}}
+
+Widerspruch gegen den Rückforderungsbescheid vom {{notice_date}}
+
+Sehr geehrte Damen und Herren,
+
+hiermit lege ich gegen den o.g. Bescheid, mir zugegangen am {{received_date}}, fristgerecht Widerspruch ein.
+
+Begründung:
+{{objection_reason}}
+
+Bitte bestätigen Sie mir den Eingang dieses Widerspruchs schriftlich.
+
+Mit freundlichen Grüßen
+
+{{applicant_name}}
+{{applicant_address}}
+""",
+        "field_map": {
+            "applicant_name": ("last_name", "first_name"),
+            "applicant_address": ("street", "postal_code", "city"),
+            "applicant_city": ("postal_code", "city"),
+            "authority_name": None,
+            "file_number": None,
+            "notice_date": None,
+            "received_date": None,
+            "objection_reason": ("case_description",),
+            "letter_date": None,
+        },
+        "fields": [
+            {"id": "applicant_name", "label": "Ihr Name", "required": True},
+            {"id": "applicant_address", "label": "Ihre Adresse", "required": True},
+            {"id": "applicant_city", "label": "PLZ und Ort", "required": True},
+            {"id": "authority_name", "label": "Ausstellende Behörde (z.B. BVA)", "required": True},
+            {"id": "file_number", "label": "Aktenzeichen / Förderungsnummer", "required": True},
+            {"id": "notice_date", "label": "Datum des Bescheids", "type": "date", "required": True},
+            {"id": "received_date", "label": "Zustelldatum", "type": "date", "required": True},
             {
-                "id": "additional_note",
-                "label": "Zusätzliche Angaben (optional)",
+                "id": "objection_reason",
+                "label": "Begründung des Widerspruchs",
                 "type": "textarea",
-                "required": False,
+                "required": True,
+                "placeholder": "z.B. Die geforderte Summe ist falsch berechnet, Vertrauensschutz nach § 45 SGB X greift...",
             },
             {"id": "letter_date", "label": "Datum des Schreibens", "type": "date", "required": True},
         ],
@@ -434,6 +487,11 @@ TOPIC_TO_FORM: dict[str, str] = {
     "akteneinsicht": "bussgeld-akteneinsicht",
     "fahrer": "bussgeld-fahrer-benennen",
     "halter": "bussgeld-fahrer-benennen",
+    "bafög": "bafoeg-widerspruch",
+    "bafoeg": "bafoeg-widerspruch",
+    "ausbildungsförderung": "bafoeg-widerspruch",
+    "rückbescheid": "bafoeg-widerspruch",
+    "bva": "bafoeg-widerspruch",
 }
 
 # Document scenarios: when markers match, suggest these forms in order (max 3).
@@ -463,6 +521,10 @@ DOCUMENT_SCENARIO_FORMS: list[tuple[re.Pattern[str], list[str]]] = [
     (
         re.compile(r"\b(arbeitszeugnis|arbeitgeberzeugnis)\b", re.I),
         ["arbeitszeugnis"],
+    ),
+    (
+        re.compile(r"\b(bafög|bafoeg|ausbildungsförderung|rückbescheid|darlehenskasse|bva|bundesverwaltungsamt)\b", re.I),
+        ["bafoeg-widerspruch"],
     ),
 ]
 

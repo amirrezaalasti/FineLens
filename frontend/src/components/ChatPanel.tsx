@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
-import { getChatSession, sendChat, uploadFile } from "@/lib/api";
+import { getChatSession, sendChat, seedBafogDemo, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
@@ -22,6 +22,7 @@ interface ChatPanelProps {
   onOpenFormsTab?: () => void;
   onAttachmentSelect?: (attachment: Attachment) => void;
   onOpenSources?: () => void;
+  onDemoLoaded?: (attachment: Attachment, assistantMsg: ChatMessage) => void;
   sourcesCount?: number;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
@@ -38,6 +39,7 @@ export function ChatPanel({
   onOpenFormsTab,
   onAttachmentSelect,
   onOpenSources,
+  onDemoLoaded,
   sourcesCount = 0,
   attachments,
   setAttachments,
@@ -269,6 +271,9 @@ export function ChatPanel({
     }
   };
 
+  const onDemoLoadedRef = useRef(onDemoLoaded);
+  onDemoLoadedRef.current = onDemoLoaded;
+
   useEffect(() => {
     if (!sessionId) {
       setMessages([]);
@@ -279,22 +284,43 @@ export function ChatPanel({
     let cancelled = false;
     setLoadingSession(true);
 
-    getChatSession(sessionId, userId)
-      .then((session) => {
+    (async () => {
+      try {
+        let session = await getChatSession(sessionId, userId);
+        if (cancelled) return;
+
+        const wasEmpty = session.messages.length === 0;
+        if (wasEmpty) {
+          try {
+            session = await seedBafogDemo(sessionId, userId);
+          } catch (err) {
+            console.error("Failed to seed BAföG demo:", err);
+          }
+        }
+
         if (cancelled) return;
         setMessages(session.messages);
         setFollowUps([]);
+
         const lastAssistant = [...session.messages]
           .reverse()
           .find((m) => m.role === "assistant");
         if (lastAssistant) onResponseRef.current(lastAssistant);
-      })
-      .catch(() => {
+
+        if (wasEmpty) {
+          const userWithAttachment = session.messages.find(
+            (m) => m.role === "user" && m.attachments && m.attachments.length > 0
+          );
+          if (userWithAttachment?.attachments?.[0] && lastAssistant) {
+            onDemoLoadedRef.current?.(userWithAttachment.attachments[0], lastAssistant);
+          }
+        }
+      } catch {
         if (!cancelled) setMessages([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoadingSession(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

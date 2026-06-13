@@ -90,6 +90,13 @@ export async function deleteChatSession(sessionId: string, userId: string) {
   );
 }
 
+export async function seedBafogDemo(sessionId: string, userId: string) {
+  return request<ChatSession>(
+    `/chat/demo/bafog/seed?session_id=${encodeURIComponent(sessionId)}&user_id=${encodeURIComponent(userId)}`,
+    { method: "POST" }
+  );
+}
+
 export async function getProfile(userId: string) {
   return request<UserProfile>(`/users/${userId}`);
 }

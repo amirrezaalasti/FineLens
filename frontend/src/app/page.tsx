@@ -24,6 +24,27 @@ type Tab = "chat" | "profile" | "forms" | "sources";
 
 const USER_ID = "default";
 const SESSION_STORAGE_KEY = `finelens-active-session-${USER_ID}`;
+const DRAFT_ATTACHMENTS_KEY = `finelens-draft-attachments-${USER_ID}`;
+const SELECTED_ATTACHMENT_KEY = `finelens-selected-attachment-${USER_ID}`;
+
+function loadStoredJson<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeJson(key: string, value: unknown) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore quota errors for large attachment previews
+  }
+}
 
 export default function Home() {
   const { t } = useTranslation();
@@ -43,12 +64,36 @@ export default function Home() {
   }, []);
   const [graphConnected, setGraphConnected] = useState<boolean | null>(null);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() =>
+    loadStoredJson<string>(SESSION_STORAGE_KEY)
+  );
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [activeRightTab, setActiveRightTab] = useState<"citations" | "analysis">("citations");
-  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
-  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>([]);
+  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(() =>
+    loadStoredJson<Attachment>(SELECTED_ATTACHMENT_KEY)
+  );
+  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>(() =>
+    loadStoredJson<Attachment[]>(DRAFT_ATTACHMENTS_KEY) ?? []
+  );
   const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
+
+  useEffect(() => {
+    if (activeSessionId) {
+      storeJson(SESSION_STORAGE_KEY, activeSessionId);
+    }
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    storeJson(DRAFT_ATTACHMENTS_KEY, draftAttachments);
+  }, [draftAttachments]);
+
+  useEffect(() => {
+    if (selectedAttachment) {
+      storeJson(SELECTED_ATTACHMENT_KEY, selectedAttachment);
+    } else {
+      sessionStorage.removeItem(SELECTED_ATTACHMENT_KEY);
+    }
+  }, [selectedAttachment]);
 
   const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
     setSelectedAttachment(prev => {
@@ -87,14 +132,19 @@ export default function Home() {
         const list = await refreshSessions();
         if (cancelled) return;
 
-        const emptySession = list.find((s) => s.message_count === 0);
-        if (emptySession) {
-          setActiveSessionId(emptySession.id);
+        const storedId = loadStoredJson<string>(SESSION_STORAGE_KEY);
+        if (storedId && list.some((s) => s.id === storedId)) {
+          setActiveSessionId(storedId);
         } else {
-          const session = await createChatSession(USER_ID);
-          if (!cancelled) {
-            setActiveSessionId(session.id);
-            await refreshSessions();
+          const emptySession = list.find((s) => s.message_count === 0);
+          if (emptySession) {
+            setActiveSessionId(emptySession.id);
+          } else {
+            const session = await createChatSession(USER_ID);
+            if (!cancelled) {
+              setActiveSessionId(session.id);
+              await refreshSessions();
+            }
           }
         }
       } catch {
@@ -116,6 +166,7 @@ export default function Home() {
     setCitations([]);
     setTransparencyNote("");
     setSelectedAttachment(null);
+    setDraftAttachments([]);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
     await refreshSessions();
@@ -123,7 +174,6 @@ export default function Home() {
 
   const handleSelectSession = (sessionId: string) => {
     setActiveSessionId(sessionId);
-    setSelectedAttachment(null);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
   };
@@ -159,6 +209,22 @@ export default function Home() {
     [refreshSessions]
   );
 
+  const handleDemoLoaded = useCallback((attachment: Attachment, assistantMsg: ChatMessage) => {
+    setSelectedAttachment(attachment);
+    setCitations(assistantMsg.citations || []);
+    setTransparencyNote(assistantMsg.transparency_note || "");
+    if (assistantMsg.suggested_forms?.length) {
+      handleFormSuggest(assistantMsg.suggested_forms);
+    }
+    refreshSessions();
+  }, [handleFormSuggest, refreshSessions]);
+
+  const handleAttachmentSelect = useCallback((att: Attachment) => {
+    setSelectedAttachment(att);
+    setActiveRightTab("analysis");
+    setMobileChatPanel("sources");
+  }, []);
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white">
       <Header activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
@@ -170,87 +236,83 @@ export default function Home() {
             : "max-w-7xl overflow-y-auto py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:py-6 md:pb-6"
         }`}
       >
-        {tab === "chat" && (
-          <div className="h-full min-h-0">
-            <ResizableChatLayout
-              mobilePanel={mobileChatPanel}
-              onMobilePanelChange={setMobileChatPanel}
-              sourcesBadge={citations.length}
-              sidebar={
-                <ChatSidebar
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  onSelect={handleSelectSession}
-                  onNewChat={handleNewChat}
-                  onDelete={handleDeleteSession}
-                  loading={sessionsLoading}
-                />
-              }
-              chat={
-                <ChatPanel
-                  userId={USER_ID}
-                  sessionId={activeSessionId}
-                  onSessionIdChange={handleSessionIdChange}
-                  onResponse={handleResponse}
-                  onFormSuggest={handleFormSuggest}
-                  onOpenFormsTab={() => setTab("forms")}
-                  onAttachmentSelect={(att) => {
-                    setSelectedAttachment(att);
-                    setActiveRightTab("analysis");
-                    setMobileChatPanel("sources");
-                  }}
-                  onOpenSources={() => setMobileChatPanel("sources")}
-                  sourcesCount={citations.length}
-                  attachments={draftAttachments}
-                  setAttachments={setDraftAttachments}
-                />
-              }
-              citations={
-                <div className="flex h-full flex-col min-h-0 gap-3">
-                  <div className="flex bg-ink/5 p-1 rounded-xl border border-ink/10 shrink-0">
-                    <button
-                      onClick={() => setActiveRightTab("citations")}
-                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        activeRightTab === "citations"
-                          ? "bg-pink text-white shadow-sm"
-                          : "text-ink/60 hover:text-ink hover:bg-ink/5"
-                      }`}
-                    >
-                      Quellen & Transparenz
-                    </button>
-                    <button
-                      onClick={() => setActiveRightTab("analysis")}
-                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                        activeRightTab === "analysis"
-                          ? "bg-pink text-white shadow-sm"
-                          : "text-ink/60 hover:text-ink hover:bg-ink/5"
-                      }`}
-                    >
-                      Dokumenten-Analyse
-                    </button>
-                  </div>
-                  <div className="flex-1 min-h-0">
-                    {activeRightTab === "citations" ? (
-                      <CitationsPanel
-                        citations={citations}
-                        transparencyNote={transparencyNote}
-                      />
-                    ) : (
-                      <DocumentAnalysisPanel
-                        attachment={selectedAttachment}
-                        onClose={() => {
-                          setSelectedAttachment(null);
-                          setActiveRightTab("citations");
-                        }}
-                        onUpdateAnalysis={handleUpdateAnalysis}
-                      />
-                    )}
-                  </div>
+        {/* Keep chat mounted so uploads and draft state survive tab switches */}
+        <div className={tab === "chat" ? "h-full min-h-0" : "hidden"} aria-hidden={tab !== "chat"}>
+          <ResizableChatLayout
+            mobilePanel={mobileChatPanel}
+            onMobilePanelChange={setMobileChatPanel}
+            sourcesBadge={citations.length}
+            sidebar={
+              <ChatSidebar
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onSelect={handleSelectSession}
+                onNewChat={handleNewChat}
+                onDelete={handleDeleteSession}
+                loading={sessionsLoading}
+              />
+            }
+            chat={
+              <ChatPanel
+                userId={USER_ID}
+                sessionId={activeSessionId}
+                onSessionIdChange={handleSessionIdChange}
+                onResponse={handleResponse}
+                onFormSuggest={handleFormSuggest}
+                onOpenFormsTab={() => setTab("forms")}
+                onAttachmentSelect={handleAttachmentSelect}
+                onDemoLoaded={handleDemoLoaded}
+                onOpenSources={() => setMobileChatPanel("sources")}
+                sourcesCount={citations.length}
+                attachments={draftAttachments}
+                setAttachments={setDraftAttachments}
+              />
+            }
+            citations={
+              <div className="flex h-full flex-col min-h-0 gap-3">
+                <div className="flex bg-ink/5 p-1 rounded-xl border border-ink/10 shrink-0">
+                  <button
+                    onClick={() => setActiveRightTab("citations")}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      activeRightTab === "citations"
+                        ? "bg-pink text-white shadow-sm"
+                        : "text-ink/60 hover:text-ink hover:bg-ink/5"
+                    }`}
+                  >
+                    Quellen & Transparenz
+                  </button>
+                  <button
+                    onClick={() => setActiveRightTab("analysis")}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      activeRightTab === "analysis"
+                        ? "bg-pink text-white shadow-sm"
+                        : "text-ink/60 hover:text-ink hover:bg-ink/5"
+                    }`}
+                  >
+                    Dokumenten-Analyse
+                  </button>
                 </div>
-              }
-            />
-          </div>
-        )}
+                <div className="flex-1 min-h-0">
+                  {activeRightTab === "citations" ? (
+                    <CitationsPanel
+                      citations={citations}
+                      transparencyNote={transparencyNote}
+                    />
+                  ) : (
+                    <DocumentAnalysisPanel
+                      attachment={selectedAttachment}
+                      onClose={() => {
+                        setSelectedAttachment(null);
+                        setActiveRightTab("citations");
+                      }}
+                      onUpdateAnalysis={handleUpdateAnalysis}
+                    />
+                  )}
+                </div>
+              </div>
+            }
+          />
+        </div>
 
         {tab === "profile" && (
           <ProfileWizard

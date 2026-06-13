@@ -36,6 +36,35 @@ export const en = {
       evening: "Good evening",
     },
     notifications: "Notifications",
+    notificationsPanel: {
+      title: "Notifications",
+      markAllRead: "Mark all read",
+      dismiss: "Dismiss notification",
+      close: "Close",
+      empty: "You're all caught up — no notifications.",
+      items: {
+        bafog: {
+          title: "BAföG notice analysed",
+          body: "Your sample BAföG repayment notice was processed. Review options in chat.",
+          time: "Just now",
+        },
+        deadline: {
+          title: "Objection deadline approaching",
+          body: "You may have 14 days to object to administrative decisions — check your document.",
+          time: "2 hours ago",
+        },
+        form: {
+          title: "Matching form available",
+          body: "A Widerspruch template was suggested based on your case.",
+          time: "Yesterday",
+        },
+        profile: {
+          title: "Complete your profile",
+          body: "Add your details to auto-fill legal forms faster.",
+          time: "2 days ago",
+        },
+      },
+    },
     tabs: {
       chat: "Home",
       profile: "Profile",

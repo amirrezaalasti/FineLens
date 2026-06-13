@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Bell,
   BookOpen,
   FileText,
   Home,
@@ -12,6 +11,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 
 export type Tab = "chat" | "profile" | "forms" | "sources";
 
@@ -143,16 +143,7 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
                 {graphConnected ? t("header.graphConnected") : t("header.graphOffline")}
               </span>
             )}
-            <button
-              type="button"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-surface-warm text-ink-muted transition hover:bg-pink/10 hover:text-pink"
-              aria-label={t("header.notifications")}
-            >
-              <Bell className="h-4 w-4" />
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-                2
-              </span>
-            </button>
+            <NotificationsDropdown onTabChange={onTabChange} />
           </div>
         </div>
 

@@ -206,10 +206,31 @@ export function ResizableChatLayout({
           onChange={setMobilePanel}
           sourcesBadge={sourcesBadge}
         />
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {mobilePanel === "sidebar" && <div className="h-full overflow-hidden">{sidebar}</div>}
-          {mobilePanel === "chat" && <div className="h-full overflow-hidden">{chat}</div>}
-          {mobilePanel === "sources" && <div className="h-full overflow-hidden">{citations}</div>}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`absolute inset-0 overflow-hidden ${
+              mobilePanel === "sidebar" ? "visible z-10" : "invisible pointer-events-none z-0"
+            }`}
+            aria-hidden={mobilePanel !== "sidebar"}
+          >
+            {sidebar}
+          </div>
+          <div
+            className={`absolute inset-0 overflow-hidden ${
+              mobilePanel === "chat" ? "visible z-10" : "invisible pointer-events-none z-0"
+            }`}
+            aria-hidden={mobilePanel !== "chat"}
+          >
+            {chat}
+          </div>
+          <div
+            className={`absolute inset-0 overflow-hidden ${
+              mobilePanel === "sources" ? "visible z-10" : "invisible pointer-events-none z-0"
+            }`}
+            aria-hidden={mobilePanel !== "sources"}
+          >
+            {citations}
+          </div>
         </div>
       </div>
 

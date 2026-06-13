@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     )
 
     openai_api_key: str = ""
+    openai_chat_model: str = "gpt-4o-mini"
     # embedded = FalkorDB Lite (no Docker), falkordb = Docker/server, neo4j = Neo4j
     graph_backend: str = "falkordb"
     falkordb_host: str = "localhost"

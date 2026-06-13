@@ -61,8 +61,21 @@ _DEFAULT_FINE_NORMS = [
     "§ 26 StVG",
 ]
 
+_BAFOEG_DOC_HINTS = re.compile(
+    r"\b(bafög|bafoeg|ausbildungsförderung|rückbescheid|darlehenskasse|bva|bundesverwaltungsamt)\b",
+    re.I,
+)
 
-def _infer_norms_from_attachments(message: str, attachments: list[Attachment]) -> list[str]:
+_DEFAULT_BAFOEG_NORMS = [
+    "§ 20 BAföG",
+    "§ 50 BAföG",
+    "§ 45 SGB X",
+]
+
+
+def _infer_norms_from_attachments(
+    message: str, attachments: list[Attachment]
+) -> list[str]:
     """When document text is missing, infer likely norms from filename and message."""
     blob = message.lower()
     for att in attachments:
@@ -73,6 +86,8 @@ def _infer_norms_from_attachments(message: str, attachments: list[Attachment]) -
     ):
         if _FINE_DOC_HINTS.search(blob):
             return list(_DEFAULT_FINE_NORMS)
+        if _BAFOEG_DOC_HINTS.search(blob):
+            return list(_DEFAULT_BAFOEG_NORMS)
     return []
 
 
@@ -128,15 +143,22 @@ def _map_source(name: str) -> LegalSource:
     return LegalSource.OPEN_LEGAL_DATA
 
 
-async def generate_answer(request: ChatRequest) -> ChatResponse:
+async def generate_answer(
+    request: ChatRequest, *, persist: bool = True
+) -> ChatResponse:
     profile = get_profile(request.user_id)
-    session = get_or_create_session(request.user_id, request.session_id)
+    session = (
+        get_or_create_session(request.user_id, request.session_id) if persist else None
+    )
     answer_style = classify_query(request.message, profile)
 
     search_query = _build_search_query(request.message, request.attachments)
     inferred_norms = _infer_norms_from_attachments(request.message, request.attachments)
     if inferred_norms:
-        search_query += "\n\nRelevante Normen (aus Dokumenttyp abgeleitet): " + ", ".join(inferred_norms)
+        search_query += (
+            "\n\nRelevante Normen (aus Dokumenttyp abgeleitet): "
+            + ", ".join(inferred_norms)
+        )
 
     # Run query rewriter to get predicted norms (used for context hints)
     rewritten = await rewrite_query(search_query, history=request.history)
@@ -227,12 +249,14 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
             attachment_text += f"--- DATEI: {att.name} ({att.file_type}) ---\n{att.content}\n--- ENDE DATEI ---\n"
         current_message_content = f"{current_message_content}\n{attachment_text}"
 
-    prompt = build_user_prompt(context_block, user_context, current_message_content, answer_style)
+    prompt = build_user_prompt(
+        context_block, user_context, current_message_content, answer_style
+    )
     messages.append({"role": "user", "content": prompt})
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     completion = await client.chat.completions.create(
-        model="gpt-5.5",
+        model=settings.openai_chat_model,
         messages=messages,
     )
     answer = completion.choices[0].message.content or ""
@@ -285,7 +309,10 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
                 "Welche Fristen gelten für einen Widerspruch?",
                 "Brauche ich einen Anwalt für diesen Fall?",
             ]
-        elif "datenschutz" in request.message.lower() or "dsgvo" in request.message.lower():
+        elif (
+            "datenschutz" in request.message.lower()
+            or "dsgvo" in request.message.lower()
+        ):
             follow_ups = [
                 "Wie lange hat das Unternehmen Zeit zu antworten?",
                 "Was tun bei fehlender Antwort?",
@@ -309,30 +336,31 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
         "Dies ist keine Rechtsberatung."
     )
 
-    try:
-        await add_user_episode(
-            request.user_id,
-            f"Frage: {request.message}\nStil: {answer_style.value}\nAntwort-Zusammenfassung: {answer[:500]}",
-            label="chat_interaction",
-        )
-    except Exception:
-        pass
+    if persist:
+        try:
+            await add_user_episode(
+                request.user_id,
+                f"Frage: {request.message}\nStil: {answer_style.value}\nAntwort-Zusammenfassung: {answer[:500]}",
+                label="chat_interaction",
+            )
+        except Exception:
+            pass
 
-    append_messages(
-        session.id,
-        StoredChatMessage(
-            role="user",
-            content=request.message,
-            attachments=request.attachments,
-        ),
-        StoredChatMessage(
-            role="assistant",
-            content=answer,
-            citations=citations,
-            transparency_note=transparency,
-            suggested_forms=suggested_forms,
-        ),
-    )
+        append_messages(
+            session.id,
+            StoredChatMessage(
+                role="user",
+                content=request.message,
+                attachments=request.attachments,
+            ),
+            StoredChatMessage(
+                role="assistant",
+                content=answer,
+                citations=citations,
+                transparency_note=transparency,
+                suggested_forms=suggested_forms,
+            ),
+        )
 
     return ChatResponse(
         answer=answer,
@@ -340,5 +368,5 @@ async def generate_answer(request: ChatRequest) -> ChatResponse:
         suggested_forms=suggested_forms,
         follow_up_questions=follow_ups,
         transparency_note=transparency,
-        session_id=session.id,
+        session_id=session.id if session else "",
     )

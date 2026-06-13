@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, FileEdit, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, FileEdit, Sparkles } from "lucide-react";
 import { getForms } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { FormField, LegalForm } from "@/lib/types";
@@ -104,7 +104,7 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
         updateField(field.id, e.target.value),
       className:
-        "w-full rounded-xl border border-navy/15 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-gold/40",
+        "w-full rounded-xl border border-ink/15 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-pink/40",
       placeholder: field.placeholder,
     };
 
@@ -125,10 +125,10 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
   ];
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-5">
-      <div className="lg:col-span-2">
-        <div className="glass rounded-2xl p-4 shadow-sm">
-          <h2 className="mb-1 font-semibold text-navy">{t("forms.title")}</h2>
+    <div className="mx-auto grid max-w-6xl gap-4 sm:gap-6 lg:grid-cols-5">
+      <div className={`lg:col-span-2 ${activeForm ? "hidden lg:block" : ""}`}>
+        <div className="glass rounded-3xl p-4">
+          <h2 className="mb-1 font-semibold text-ink">{t("forms.title")}</h2>
           <p className="mb-4 text-xs text-slate-500">{t("forms.subtitle")}</p>
 
           {loading ? (
@@ -141,19 +141,22 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
                   <button
                     key={form.id}
                     onClick={() => openForm(form)}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`w-full rounded-2xl border bg-white p-3 text-left shadow-sm transition ${
                       activeForm?.id === form.id
-                        ? "border-gold bg-gold/10"
-                        : "border-navy/10 bg-white hover:border-gold/50"
+                        ? "border-pink/40 ring-1 ring-pink/20"
+                        : "border-ink/5 hover:border-pink/30"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium text-navy">{form.title}</p>
-                        <p className="text-xs text-slate-500">{form.category}</p>
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink/15">
+                        <FileEdit className="h-4 w-4 text-pink" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] text-ink-muted">{form.category}</p>
+                        <p className="text-sm font-bold text-ink">{form.title}</p>
                       </div>
                       {isSuggested && (
-                        <span className="flex items-center gap-0.5 rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-semibold text-navy">
+                        <span className="flex items-center gap-0.5 rounded-full bg-pink/20 px-2 py-0.5 text-[10px] font-semibold text-ink">
                           <Sparkles className="h-3 w-3" /> {t("common.ai")}
                         </span>
                       )}
@@ -166,30 +169,38 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
         </div>
       </div>
 
-      <div className="lg:col-span-3">
+      <div className={`lg:col-span-3 ${!activeForm ? "hidden lg:block" : ""}`}>
         {activeForm ? (
-          <div className="glass rounded-2xl p-6 shadow-sm">
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <span className="rounded-full bg-navy/5 px-2 py-0.5 text-[10px] font-semibold uppercase text-navy/60">
+          <div className="glass rounded-3xl p-4 sm:p-6">
+            <div className="mb-6 flex items-start justify-between gap-3 sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveForm(null)}
+                  className="mb-3 flex items-center gap-1.5 text-xs font-medium text-slate-500 transition active:text-ink lg:hidden touch-manipulation"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  {t("common.back")}
+                </button>
+                <span className="rounded-full bg-ink/5 px-2 py-0.5 text-[10px] font-semibold uppercase text-ink/60">
                   {activeForm.category}
                 </span>
-                <h3 className="mt-2 font-serif text-xl font-semibold text-navy">
+                <h3 className="mt-2 font-bold text-xl font-semibold text-ink">
                   {activeForm.title}
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">{activeForm.description}</p>
                 {activeForm.legal_basis.length > 0 && (
-                  <p className="mt-2 font-mono text-xs text-gold">
+                  <p className="mt-2 font-mono text-xs text-pink">
                     {activeForm.legal_basis.join(" · ")}
                   </p>
                 )}
               </div>
               <button
                 onClick={exportForm}
-                className="flex shrink-0 items-center gap-2 rounded-xl bg-navy px-3 py-2 text-xs font-medium text-white hover:bg-navy-light"
+                className="flex shrink-0 items-center gap-2 rounded-2xl bg-pink px-3 py-2.5 text-xs font-bold text-white transition hover:bg-pink-dark active:scale-95 touch-manipulation"
               >
                 <Download className="h-3.5 w-3.5" />
-                {t("common.export")}
+                <span className="hidden sm:inline">{t("common.export")}</span>
               </button>
             </div>
 
@@ -211,11 +222,11 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
             </div>
 
             {activeForm.body_template && (
-              <div className="mt-6 rounded-xl border border-navy/10 bg-cream/40 p-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-navy/50">
+              <div className="mt-6 rounded-xl border border-ink/10 bg-surface/40 p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/50">
                   {t("forms.letterPreview")}
                 </p>
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-navy/90">
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink/90">
                   {activeForm.fields.reduce(
                     (body, f) =>
                       body.replaceAll(`{{${f.id}}}`, fieldValues[f.id] || `[${f.label}]`),
@@ -228,7 +239,7 @@ export function FormsPanel({ userId, suggestedForms = [] }: FormsPanelProps) {
         ) : (
           <div className="glass flex flex-col items-center justify-center rounded-2xl p-12 text-center shadow-sm">
             <FileEdit className="mb-4 h-12 w-12 text-slate-300" />
-            <p className="font-medium text-navy">{t("forms.selectTitle")}</p>
+            <p className="font-medium text-ink">{t("forms.selectTitle")}</p>
             <p className="mt-1 max-w-sm text-sm text-slate-500">
               {t("forms.selectDescription")}
             </p>

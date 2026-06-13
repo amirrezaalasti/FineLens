@@ -1,33 +1,38 @@
 @import "tailwindcss";
 
 :root {
-  --navy: #0c1a2e;
-  --navy-light: #152a45;
-  --gold: #c9a227;
-  --gold-light: #e8c84a;
-  --cream: #f8f6f1;
-  --slate: #64748b;
+  --pink: #e97797;
+  --pink-light: #f5a0b8;
+  --pink-dark: #c85c8e;
+  --plum: #5d2a42;
+  --ink: #1a1a1a;
+  --ink-muted: #6b7280;
+  --surface: #fafafa;
+  --surface-warm: #f5f3f4;
   --success: #16a34a;
-  --background: var(--cream);
-  --foreground: var(--navy);
+  --background: #ffffff;
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-navy: var(--navy);
-  --color-navy-light: var(--navy-light);
-  --color-gold: var(--gold);
-  --color-gold-light: var(--gold-light);
-  --color-cream: var(--cream);
-  --font-sans: var(--font-dm-sans);
-  --font-serif: var(--font-source-serif);
+  --color-pink: var(--pink);
+  --color-pink-light: var(--pink-light);
+  --color-pink-dark: var(--pink-dark);
+  --color-plum: var(--plum);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-surface: var(--surface);
+  --color-surface-warm: var(--surface-warm);
+  --font-sans: var(--font-nunito);
 }
 
 html,
 body {
   height: 100%;
   overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -36,14 +41,44 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+.overscroll-contain {
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 767px) {
+  .glass {
+    border-radius: 1.25rem;
+  }
+}
+
 ::selection {
-  background: color-mix(in srgb, var(--gold) 40%, transparent);
+  background: color-mix(in srgb, var(--pink) 35%, transparent);
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(12, 26, 46, 0.08);
+  background: #ffffff;
+  border: 1px solid rgba(26, 26, 26, 0.06);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+.card-gradient {
+  background: linear-gradient(to right, var(--pink), var(--pink-dark));
+}
+
+.splash-gradient {
+  background: linear-gradient(to bottom, var(--pink-dark), var(--plum));
 }
 
 .prose-legal {
@@ -77,8 +112,8 @@ body {
 /* Demo page */
 .demo-hero-mesh {
   background:
-    radial-gradient(ellipse 80% 60% at 70% 20%, rgba(201, 162, 39, 0.12), transparent),
-    radial-gradient(ellipse 50% 40% at 10% 80%, rgba(89, 156, 231, 0.08), transparent);
+    radial-gradient(ellipse 80% 60% at 70% 20%, rgba(233, 119, 151, 0.15), transparent),
+    radial-gradient(ellipse 50% 40% at 10% 80%, rgba(93, 42, 66, 0.1), transparent);
 }
 
 .demo-fade-in {
@@ -103,7 +138,7 @@ body {
 
 .demo-graph-frame {
   box-shadow:
-    0 0 0 1px rgba(201, 162, 39, 0.08),
+    0 0 0 1px rgba(233, 119, 151, 0.1),
     0 24px 80px rgba(0, 0, 0, 0.45);
 }
 

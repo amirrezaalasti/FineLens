@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,9 +15,11 @@ class Settings(BaseSettings):
     falkordb_host: str = "localhost"
     falkordb_port: int = 6380
     embedded_db_path: str = "data/graphiti.db"
+    data_dir: str = "data"
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = "finelens123"
+    neo4j_database: str = "neo4j"
     oldp_api_base: str = "https://de.openlegaldata.io/api"
     oldp_api_key: str = ""
     bund_recht_api: str = "https://testphase.rechtsinformationen.bund.de"
@@ -39,6 +43,13 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def data_dir_path(self) -> Path:
+        path = Path(self.data_dir)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent.parent / path
+        return path
 
 
 settings = Settings()

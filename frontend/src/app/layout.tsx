@@ -1,24 +1,26 @@
-import type { Metadata } from "next";
-import { DM_Sans, Source_Serif_4 } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Nunito } from "next/font/google";
 import { I18nProvider } from "@/i18n";
 import "./globals.css";
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const sourceSerif = Source_Serif_4({
-  variable: "--font-source-serif",
-  subsets: ["latin"],
-  weight: ["400", "600"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
   title: "FineLens — Graph-Enhanced Legal Intelligence",
   description:
     "KI-gestützter juristischer Assistent mit Graphiti Knowledge Graph, Quellennachweisen und intelligenten Formularen.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#e97797",
 };
 
 export default function RootLayout({
@@ -29,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="de"
-      className={`${dmSans.variable} ${sourceSerif.variable} h-full antialiased`}
+      className={`${nunito.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body

@@ -74,12 +74,21 @@ async def get_graphiti():
     backend = settings.graph_backend.lower()
 
     if backend == "neo4j":
-        _graphiti = Graphiti(
+        from graphiti_core.driver.neo4j_driver import Neo4jDriver
+
+        driver = Neo4jDriver(
             settings.neo4j_uri,
             settings.neo4j_user,
             settings.neo4j_password,
+            database=settings.neo4j_database,
         )
+        _graphiti = Graphiti(graph_driver=driver)
         _graph_backend_in_use = "neo4j"
+        logger.info(
+            "Graphiti connected to Neo4j at %s (database=%s)",
+            settings.neo4j_uri,
+            settings.neo4j_database,
+        )
     elif backend == "embedded":
         driver = _create_embedded_driver()
         _graphiti = Graphiti(graph_driver=driver)
@@ -130,11 +139,21 @@ async def close_graphiti() -> None:
 
 async def graph_episode_count() -> int:
     graphiti = await get_graphiti()
+    backend = get_graph_backend_in_use()
     try:
-        graph = graphiti.driver.client.select_graph(LEGAL_GROUP)
-        result = await graph.query("MATCH (e:Episodic) RETURN count(e)")
-        if result.result_set:
-            return int(result.result_set[0][0])
+        if backend == "neo4j":
+            result = await graphiti.driver.execute_query(
+                "MATCH (e:Episodic) WHERE e.group_id = $group_id RETURN count(e) AS count",
+                params={"group_id": LEGAL_GROUP},
+            )
+            records = result.records if result else []
+            if records:
+                return int(records[0]["count"])
+        else:
+            graph = graphiti.driver.client.select_graph(LEGAL_GROUP)
+            result = await graph.query("MATCH (e:Episodic) RETURN count(e)")
+            if result.result_set:
+                return int(result.result_set[0][0])
     except Exception:
         pass
     return 0

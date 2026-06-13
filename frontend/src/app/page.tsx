@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Header } from "@/components/Header";
+import { Header, MobileBottomNav } from "@/components/Header";
+import type { MobileChatPanel } from "@/components/ResizableChatLayout";
 import { ChatPanel } from "@/components/ChatPanel";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
@@ -47,6 +48,7 @@ export default function Home() {
   const [activeRightTab, setActiveRightTab] = useState<"citations" | "analysis">("citations");
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<Attachment[]>([]);
+  const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
 
   const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
     setSelectedAttachment(prev => {
@@ -115,6 +117,7 @@ export default function Home() {
     setTransparencyNote("");
     setSelectedAttachment(null);
     setActiveRightTab("citations");
+    setMobileChatPanel("chat");
     await refreshSessions();
   };
 
@@ -122,6 +125,7 @@ export default function Home() {
     setActiveSessionId(sessionId);
     setSelectedAttachment(null);
     setActiveRightTab("citations");
+    setMobileChatPanel("chat");
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -156,19 +160,22 @@ export default function Home() {
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-gradient-to-b from-cream via-white to-cream">
+    <div className="flex h-dvh flex-col overflow-hidden bg-white">
       <Header activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
 
       <main
-        className={`mx-auto w-full min-h-0 flex-1 px-4 sm:px-6 ${
+        className={`mx-auto w-full min-h-0 flex-1 px-3 sm:px-6 ${
           tab === "chat"
-            ? "max-w-[1800px] overflow-hidden py-3"
-            : "max-w-7xl overflow-y-auto py-6"
+            ? "max-w-[1800px] overflow-hidden py-2 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:py-3 md:pb-3"
+            : "max-w-7xl overflow-y-auto py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:py-6 md:pb-6"
         }`}
       >
         {tab === "chat" && (
           <div className="h-full min-h-0">
             <ResizableChatLayout
+              mobilePanel={mobileChatPanel}
+              onMobilePanelChange={setMobileChatPanel}
+              sourcesBadge={citations.length}
               sidebar={
                 <ChatSidebar
                   sessions={sessions}
@@ -190,20 +197,23 @@ export default function Home() {
                   onAttachmentSelect={(att) => {
                     setSelectedAttachment(att);
                     setActiveRightTab("analysis");
+                    setMobileChatPanel("sources");
                   }}
+                  onOpenSources={() => setMobileChatPanel("sources")}
+                  sourcesCount={citations.length}
                   attachments={draftAttachments}
                   setAttachments={setDraftAttachments}
                 />
               }
               citations={
                 <div className="flex h-full flex-col min-h-0 gap-3">
-                  <div className="flex bg-navy/5 p-1 rounded-xl border border-navy/10 shrink-0">
+                  <div className="flex bg-ink/5 p-1 rounded-xl border border-ink/10 shrink-0">
                     <button
                       onClick={() => setActiveRightTab("citations")}
                       className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                         activeRightTab === "citations"
-                          ? "bg-navy text-white shadow-sm"
-                          : "text-navy/60 hover:text-navy hover:bg-navy/5"
+                          ? "bg-pink text-white shadow-sm"
+                          : "text-ink/60 hover:text-ink hover:bg-ink/5"
                       }`}
                     >
                       Quellen & Transparenz
@@ -212,8 +222,8 @@ export default function Home() {
                       onClick={() => setActiveRightTab("analysis")}
                       className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                         activeRightTab === "analysis"
-                          ? "bg-navy text-white shadow-sm"
-                          : "text-navy/60 hover:text-navy hover:bg-navy/5"
+                          ? "bg-pink text-white shadow-sm"
+                          : "text-ink/60 hover:text-ink hover:bg-ink/5"
                       }`}
                     >
                       Dokumenten-Analyse
@@ -256,11 +266,13 @@ export default function Home() {
         {tab === "sources" && <SourcesPanel />}
       </main>
 
-      <footer className="shrink-0 border-t border-navy/10 bg-navy/5 py-2 text-center text-xs text-slate-500">
+      <MobileBottomNav activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
+
+      <footer className="hidden shrink-0 border-t border-ink/10 bg-ink/5 py-2 text-center text-xs text-slate-500 md:block">
         FineLens · {t("footer.disclaimer")} · {t("footer.dataSources")} · {t("footer.engine")}{" "}
         <a
           href="https://github.com/getzep/graphiti"
-          className="text-navy hover:text-gold"
+          className="text-ink hover:text-pink"
           target="_blank"
           rel="noopener noreferrer"
         >

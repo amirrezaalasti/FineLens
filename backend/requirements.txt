@@ -15,6 +15,7 @@ python-dotenv>=1.0.0
 # LLM & knowledge graph
 openai>=1.60.0
 graphiti-core[falkordb]>=0.29.0
+falkordblite>=0.1.0
 
 # HTTP clients & legal data ingestion
 httpx>=0.28.0

@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { MessageSquare, MessagesSquare, Shield } from "lucide-react";
 import { useTranslation } from "@/i18n";
 
 const STORAGE_KEY = "finelens-panel-widths";
+
+export type MobileChatPanel = "sidebar" | "chat" | "sources";
 
 interface PanelWidths {
   sidebar: number;
@@ -26,6 +29,9 @@ interface ResizableChatLayoutProps {
   sidebar: ReactNode;
   chat: ReactNode;
   citations: ReactNode;
+  mobilePanel?: MobileChatPanel;
+  onMobilePanelChange?: (panel: MobileChatPanel) => void;
+  sourcesBadge?: number;
 }
 
 function loadWidths(): PanelWidths {
@@ -84,15 +90,78 @@ function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
       onPointerCancel={onPointerUp}
       className="group relative z-10 hidden w-2 shrink-0 cursor-col-resize lg:block"
     >
-      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-navy/10 transition group-hover:bg-gold/60 group-active:bg-gold" />
-      <div className="absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-navy/15 opacity-0 transition group-hover:opacity-100 group-active:bg-gold group-active:opacity-100" />
+      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ink/10 transition group-hover:bg-pink/60 group-active:bg-pink" />
+      <div className="absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink/15 opacity-0 transition group-hover:opacity-100 group-active:bg-pink group-active:opacity-100" />
     </div>
   );
 }
 
-export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatLayoutProps) {
+function MobilePanelTabs({
+  active,
+  onChange,
+  sourcesBadge,
+}: {
+  active: MobileChatPanel;
+  onChange: (panel: MobileChatPanel) => void;
+  sourcesBadge?: number;
+}) {
+  const { t } = useTranslation();
+
+  const tabs: { id: MobileChatPanel; icon: typeof MessageSquare; label: string }[] = [
+    { id: "sidebar", icon: MessagesSquare, label: t("layout.mobile.chats") },
+    { id: "chat", icon: MessageSquare, label: t("layout.mobile.chat") },
+    { id: "sources", icon: Shield, label: t("layout.mobile.sources") },
+  ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label={t("layout.mobile.panelNav")}
+      className="mb-3 flex shrink-0 gap-1 rounded-2xl border border-ink/10 bg-surface-warm p-1 lg:hidden"
+    >
+      {tabs.map(({ id, icon: Icon, label }) => {
+        const isActive = active === id;
+        return (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={isActive}
+            type="button"
+            onClick={() => onChange(id)}
+            className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold transition touch-manipulation ${
+              isActive
+                ? "bg-pink text-white shadow-sm"
+                : "text-ink-muted active:bg-white/60"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span>{label}</span>
+            {id === "sources" && sourcesBadge != null && sourcesBadge > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-pink px-1 text-[9px] font-bold text-white">
+                {sourcesBadge > 9 ? "9+" : sourcesBadge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ResizableChatLayout({
+  sidebar,
+  chat,
+  citations,
+  mobilePanel: controlledPanel,
+  onMobilePanelChange,
+  sourcesBadge,
+}: ResizableChatLayoutProps) {
   const [widths, setWidths] = useState<PanelWidths>(DEFAULT_WIDTHS);
+  const [internalPanel, setInternalPanel] = useState<MobileChatPanel>("chat");
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const mobilePanel = controlledPanel ?? internalPanel;
+  const setMobilePanel = onMobilePanelChange ?? setInternalPanel;
 
   useEffect(() => {
     setWidths(loadWidths());
@@ -130,11 +199,18 @@ export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatL
 
   return (
     <>
-      {/* Mobile: stacked, each panel scrolls internally */}
-      <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden lg:hidden">
-        <div className="h-36 shrink-0 overflow-hidden">{sidebar}</div>
-        <div className="min-h-0 flex-1 overflow-hidden">{chat}</div>
-        <div className="min-h-0 flex-1 overflow-hidden">{citations}</div>
+      {/* Mobile: single active panel with top tab switcher */}
+      <div className="flex h-full min-h-0 flex-col overflow-hidden lg:hidden">
+        <MobilePanelTabs
+          active={mobilePanel}
+          onChange={setMobilePanel}
+          sourcesBadge={sourcesBadge}
+        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {mobilePanel === "sidebar" && <div className="h-full overflow-hidden">{sidebar}</div>}
+          {mobilePanel === "chat" && <div className="h-full overflow-hidden">{chat}</div>}
+          {mobilePanel === "sources" && <div className="h-full overflow-hidden">{citations}</div>}
+        </div>
       </div>
 
       {/* Desktop: resizable row */}

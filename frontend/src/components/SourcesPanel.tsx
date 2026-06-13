@@ -54,19 +54,19 @@ export function SourcesPanel() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="glass rounded-2xl p-6 shadow-sm">
+      <div className="glass rounded-3xl p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Database className="h-8 w-8 text-gold" />
+            <Database className="h-8 w-8 text-pink" />
             <div>
-              <h2 className="font-serif text-xl font-semibold text-navy">{t("sources.title")}</h2>
+              <h2 className="font-bold text-xl font-semibold text-ink">{t("sources.title")}</h2>
               <p className="text-sm text-slate-500">{t("sources.subtitle")}</p>
             </div>
           </div>
           <button
             onClick={handleSeed}
             disabled={seeding}
-            className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy hover:bg-gold-light disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl bg-pink px-4 py-2.5 text-sm font-semibold text-ink hover:bg-pink-light disabled:opacity-50"
           >
             {seeding ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -103,7 +103,7 @@ export function SourcesPanel() {
             className="glass rounded-2xl p-5 shadow-sm transition hover:shadow-md"
           >
             <div className="mb-2 flex items-start justify-between gap-2">
-              <h3 className="font-semibold text-navy">{src.name}</h3>
+              <h3 className="font-semibold text-ink">{src.name}</h3>
               <span
                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusColor(src.status)}`}
               >
@@ -117,7 +117,7 @@ export function SourcesPanel() {
                 href={src.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-navy hover:text-gold"
+                className="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-pink"
               >
                 {t("common.open")} <ExternalLink className="h-3 w-3" />
               </a>

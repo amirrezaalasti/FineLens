@@ -83,7 +83,7 @@ export function ProfileWizard({ userId, onComplete }: ProfileWizardProps) {
   };
 
   const inputClass =
-    "w-full rounded-xl border border-navy/15 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-gold/40";
+    "w-full rounded-xl border border-ink/15 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-pink/40";
 
   const stepTitle = (id: (typeof STEP_IDS)[number]) => {
     if (id === "case") return t("profile.steps.legal");
@@ -93,11 +93,11 @@ export function ProfileWizard({ userId, onComplete }: ProfileWizardProps) {
   return (
     <div className="glass mx-auto max-w-2xl rounded-2xl p-6 shadow-sm">
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-navy/5">
-          <User className="h-6 w-6 text-navy" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-ink/5">
+          <User className="h-6 w-6 text-ink" />
         </div>
         <div>
-          <h2 className="font-serif text-xl font-semibold text-navy">{t("profile.title")}</h2>
+          <h2 className="font-bold text-xl font-semibold text-ink">{t("profile.title")}</h2>
           <p className="text-sm text-slate-500">{t("profile.subtitle")}</p>
         </div>
       </div>
@@ -109,10 +109,10 @@ export function ProfileWizard({ userId, onComplete }: ProfileWizardProps) {
             onClick={() => setStep(i)}
             className={`flex flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs transition ${
               i === step
-                ? "bg-navy text-white"
+                ? "bg-pink text-white"
                 : i < step
                   ? "bg-green-50 text-green-800"
-                  : "bg-navy/5 text-slate-500"
+                  : "bg-ink/5 text-slate-500"
             }`}
           >
             <span
@@ -311,7 +311,7 @@ export function ProfileWizard({ userId, onComplete }: ProfileWizardProps) {
                 handleSave();
                 setStep((s) => s + 1);
               }}
-              className="flex items-center gap-2 rounded-xl bg-navy px-5 py-2.5 text-sm font-medium text-white hover:bg-navy-light"
+              className="flex items-center gap-2 rounded-xl bg-pink px-5 py-2.5 text-sm font-medium text-white hover:bg-pink-dark"
             >
               {t("common.next")} <ChevronRight className="h-4 w-4" />
             </button>
@@ -319,7 +319,7 @@ export function ProfileWizard({ userId, onComplete }: ProfileWizardProps) {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="rounded-xl bg-gold px-5 py-2.5 text-sm font-semibold text-navy hover:bg-gold-light disabled:opacity-50"
+              className="rounded-2xl bg-pink px-5 py-2.5 text-sm font-bold text-white hover:bg-pink-dark disabled:opacity-50"
             >
               {saving ? t("common.saving") : t("common.save")}
             </button>

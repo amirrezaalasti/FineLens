@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File } from "lucide-react";
+import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
 import { getChatSession, sendChat, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
@@ -15,6 +15,8 @@ interface ChatPanelProps {
   onFormSuggest: (forms: LegalForm[]) => void;
   onOpenFormsTab?: () => void;
   onAttachmentSelect?: (attachment: Attachment) => void;
+  onOpenSources?: () => void;
+  sourcesCount?: number;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
 }
@@ -29,6 +31,8 @@ export function ChatPanel({
   onFormSuggest,
   onOpenFormsTab,
   onAttachmentSelect,
+  onOpenSources,
+  sourcesCount = 0,
   attachments,
   setAttachments,
 }: ChatPanelProps) {
@@ -321,41 +325,73 @@ export function ChatPanel({
   };
 
   return (
-    <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl shadow-sm">
-      <div className="border-b border-navy/10 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-gold" />
-          <h2 className="font-semibold text-navy">{t("chat.title")}</h2>
+    <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">
+      <div className="hidden border-b border-ink/10 px-3 py-2.5 sm:block sm:px-4 sm:py-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <MessageSquare className="h-4 w-4 shrink-0 text-pink" />
+            <h2 className="truncate font-semibold text-ink">{t("chat.title")}</h2>
+          </div>
+          {onOpenSources && sourcesCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenSources}
+              className="relative flex shrink-0 items-center gap-1 rounded-lg border border-ink/10 bg-ink/5 px-2.5 py-1.5 text-xs font-semibold text-ink transition active:bg-ink/10 lg:hidden touch-manipulation"
+            >
+              <Shield className="h-3.5 w-3.5 text-pink" />
+              <span>{sourcesCount}</span>
+            </button>
+          )}
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 hidden text-xs text-slate-500 sm:block">
           {t("chat.subtitle")}
         </p>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
         {loadingSession ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
             {t("chat.loadingSession")}
           </div>
         ) : messages.length === 0 ? (
-          <div className="space-y-4 py-8 text-center">
-            <p className="font-serif text-lg text-navy">
-              {t("chat.emptyTitle")}
-            </p>
-            <p className="mx-auto max-w-md text-sm text-slate-500">
-              {t("chat.emptyDescription")}
-            </p>
-            <div className="flex flex-wrap justify-center gap-2 pt-2">
-              {starters.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSend(s)}
-                  className="rounded-full border border-navy/15 bg-white px-3 py-1.5 text-xs text-navy transition hover:border-gold hover:bg-gold/10"
-                >
-                  {s}
-                </button>
-              ))}
+          <div className="space-y-4 py-4">
+            <div className="card-gradient relative overflow-hidden rounded-3xl p-5 text-white shadow-lg">
+              <Search className="pointer-events-none absolute -right-4 -top-2 h-32 w-32 text-white/10" strokeWidth={1.25} />
+              <div className="relative">
+                <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-white/90">
+                  <Shield className="h-3.5 w-3.5 text-amber-300" fill="currentColor" />
+                  {t("chat.heroSaved")}
+                </div>
+                <p className="text-4xl font-extrabold tracking-tight">{t("chat.heroAmount")}</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={triggerFileInput}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-pink-dark active:scale-[0.98] touch-manipulation"
+            >
+              <ScanLine className="h-4 w-4" />
+              {t("chat.heroCta")}
+            </button>
+
+            <div className="pt-2 text-center">
+              <p className="font-bold text-lg text-ink">{t("chat.emptyTitle")}</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-ink-muted">
+                {t("chat.emptyDescription")}
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {starters.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleSend(s)}
+                    className="rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs text-ink shadow-sm transition hover:border-pink hover:bg-pink/10"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -367,16 +403,16 @@ export function ChatPanel({
               <div
                 className={`max-w-[90%] rounded-2xl px-4 py-3.5 text-sm leading-relaxed ${
                   m.role === "user"
-                    ? "bg-navy text-white"
-                    : "border border-navy/8 bg-white text-navy shadow-sm"
+                    ? "bg-pink text-white"
+                    : "border border-ink/8 bg-white text-ink shadow-sm"
                 }`}
               >
                 {m.role === "assistant" ? (
                   <div className="prose-legal">
                     <AssistantMessage content={m.content} citations={m.citations} />
                     {m.suggested_forms && m.suggested_forms.length > 0 && (
-                      <div className="mt-3 border-t border-navy/10 pt-3">
-                        <p className="mb-2 text-xs font-semibold text-navy/70">
+                      <div className="mt-3 border-t border-ink/10 pt-3">
+                        <p className="mb-2 text-xs font-semibold text-ink/70">
                           {t("chat.matchingForms")}
                         </p>
                         <div className="flex flex-wrap gap-2">
@@ -391,7 +427,7 @@ export function ChatPanel({
                                 onFormSuggest([form, ...others]);
                                 onOpenFormsTab?.();
                               }}
-                              className="rounded-lg border border-gold/40 bg-gold/10 px-2.5 py-1.5 text-left text-xs text-navy transition hover:bg-gold/20"
+                              className="rounded-lg border border-pink/40 bg-pink/10 px-2.5 py-1.5 text-left text-xs text-ink transition hover:bg-pink/20"
                             >
                               <span className="font-medium">{form.title}</span>
                               <span className="mt-0.5 block text-[10px] text-slate-500">
@@ -432,9 +468,19 @@ export function ChatPanel({
                   </div>
                 )}
                 {m.citations && m.citations.length > 0 && (
-                  <p className="mt-2 border-t border-navy/10 pt-2 text-[10px] text-slate-400">
-                    {t("chat.citationsCount", { count: m.citations.length })}
-                  </p>
+                  onOpenSources ? (
+                    <button
+                      type="button"
+                      onClick={onOpenSources}
+                      className="mt-2 w-full border-t border-ink/10 pt-2 text-left text-[10px] text-slate-400 transition active:text-pink lg:hidden touch-manipulation"
+                    >
+                      {t("chat.citationsCount", { count: m.citations.length })}
+                    </button>
+                  ) : (
+                    <p className="mt-2 border-t border-ink/10 pt-2 text-[10px] text-slate-400">
+                      {t("chat.citationsCount", { count: m.citations.length })}
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -450,12 +496,12 @@ export function ChatPanel({
       </div>
 
       {followUps.length > 0 && (
-        <div className="flex flex-wrap gap-2 border-t border-navy/10 px-4 py-2">
+        <div className="flex flex-wrap gap-2 border-t border-ink/10 px-4 py-2">
           {followUps.map((q) => (
             <button
               key={q}
               onClick={() => handleSend(q)}
-              className="rounded-lg bg-navy/5 px-2.5 py-1 text-xs text-navy hover:bg-gold/20"
+              className="rounded-lg bg-ink/5 px-2.5 py-1 text-xs text-ink hover:bg-pink/20"
             >
               {q}
             </button>
@@ -463,21 +509,21 @@ export function ChatPanel({
         </div>
       )}
 
-      <div className="border-t border-navy/10 p-4">
+      <div className="border-t border-ink/10 p-3 sm:p-4">
         {/* Uploaded attachments preview */}
         {attachments.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
             {attachments.map((att, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy"
+                className="flex items-center gap-2 rounded-xl bg-ink/5 border border-ink/10 px-3 py-1.5 text-xs text-ink"
               >
                 {att.file_type.startsWith("image/") ? (
-                  <FileImage className="h-3.5 w-3.5 text-navy/70" />
+                  <FileImage className="h-3.5 w-3.5 text-ink/70" />
                 ) : att.file_type === "application/pdf" ? (
-                  <FileText className="h-3.5 w-3.5 text-navy/70" />
+                  <FileText className="h-3.5 w-3.5 text-ink/70" />
                 ) : (
-                  <File className="h-3.5 w-3.5 text-navy/70" />
+                  <File className="h-3.5 w-3.5 text-ink/70" />
                 )}
                 <span className="font-medium max-w-[150px] truncate" title={att.name}>
                   {att.name}
@@ -485,7 +531,7 @@ export function ChatPanel({
                 <button
                   type="button"
                   onClick={() => removeAttachment(idx)}
-                  className="rounded-full p-0.5 hover:bg-navy/10 text-slate-400 hover:text-navy transition cursor-pointer"
+                  className="rounded-full p-0.5 hover:bg-ink/10 text-slate-400 hover:text-ink transition cursor-pointer"
                   title={t("common.remove")}
                 >
                   <X className="h-3 w-3" />
@@ -498,7 +544,7 @@ export function ChatPanel({
         {/* Uploading progress / loading */}
         {uploading && (
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-pink" />
             <span>{t("chat.processingFile")}</span>
           </div>
         )}
@@ -508,25 +554,25 @@ export function ChatPanel({
             e.preventDefault();
             handleSend();
           }}
-          className="flex gap-2"
+          className="flex items-end gap-2"
         >
-          <div className="relative flex-1 flex items-center">
+          <div className="relative min-w-0 flex-1">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={isListening ? t("chat.listening") : t("chat.placeholder")}
-              className={`w-full rounded-xl border border-navy/15 bg-white pl-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75 ${
-                isSpeechSupported ? "pr-20" : "pr-12"
+              className={`w-full rounded-xl border border-ink/15 bg-white py-3 pl-3.5 text-base outline-none ring-pink/30 focus:ring-2 disabled:opacity-75 sm:py-2.5 sm:pl-4 sm:text-sm ${
+                isSpeechSupported ? "pr-[4.5rem] sm:pr-20" : "pr-11 sm:pr-12"
               }`}
               disabled={loading || loadingSession || uploading}
             />
-            <div className="absolute right-2 flex items-center gap-1 z-10">
+            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 sm:right-2 sm:gap-1">
               {/* File Upload Button */}
               <button
                 type="button"
                 onClick={triggerFileInput}
                 disabled={loading || loadingSession || uploading}
-                className="text-slate-400 hover:text-navy hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                className="cursor-pointer rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-ink active:bg-slate-200 touch-manipulation sm:p-1.5"
                 title={t("chat.uploadFile")}
               >
                 <Paperclip className="h-4 w-4" />
@@ -546,10 +592,10 @@ export function ChatPanel({
                   type="button"
                   onClick={toggleListening}
                   disabled={loading || loadingSession || uploading}
-                  className={`cursor-pointer p-1.5 rounded-lg transition-all duration-300 ${
+                  className={`cursor-pointer rounded-lg p-2 transition-all duration-300 touch-manipulation sm:p-1.5 ${
                     isListening
                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
-                      : "text-slate-400 hover:text-navy hover:bg-slate-100"
+                      : "text-slate-400 hover:text-ink hover:bg-slate-100"
                   }`}
                   title={isListening ? t("chat.stopSpeech") : t("chat.startSpeech")}
                 >
@@ -565,7 +611,7 @@ export function ChatPanel({
           <button
             type="submit"
             disabled={loading || loadingSession || uploading || (!input.trim() && attachments.length === 0)}
-            className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pink text-white transition hover:bg-pink-dark active:scale-95 disabled:opacity-50 touch-manipulation sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5"
           >
             <Send className="h-4 w-4" />
             <span className="hidden sm:inline">{t("common.send")}</span>

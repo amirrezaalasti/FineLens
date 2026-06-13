@@ -8,15 +8,15 @@ export function LanguageSwitcher() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <Globe className="hidden h-3.5 w-3.5 text-white/50 sm:block" />
+      <Globe className="hidden h-3.5 w-3.5 text-ink-muted sm:block" />
       <select
         value={locale}
         onChange={(e) => setLocale(e.target.value as Locale)}
         aria-label={t("language.label")}
-        className="cursor-pointer rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-xs font-medium text-white/80 outline-none transition hover:border-gold/40 hover:text-white focus:border-gold/50"
+        className="cursor-pointer rounded-lg border border-ink/10 bg-surface-warm px-2 py-1 text-xs font-medium text-ink outline-none transition hover:border-pink/40 hover:text-pink focus:border-pink/50"
       >
         {LOCALES.map((loc) => (
-          <option key={loc} value={loc} className="bg-navy text-white">
+          <option key={loc} value={loc} className="bg-white text-ink">
             {t(`language.${loc}`)}
           </option>
         ))}

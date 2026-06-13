@@ -26,7 +26,7 @@ function CitationRef({
 
   return (
     <sup
-      className="ml-0.5 inline-flex cursor-default items-center rounded bg-gold/15 px-1 py-px text-[10px] font-bold text-gold"
+      className="ml-0.5 inline-flex cursor-default items-center rounded bg-pink/15 px-1 py-px text-[10px] font-bold text-pink"
       title={label}
     >
       {num}
@@ -42,27 +42,27 @@ export function AssistantMessage({ content, citations }: AssistantMessageProps) 
       remarkPlugins={[remarkGfm]}
       components={{
         h3: ({ children }) => (
-          <h3 className="mb-2 mt-1 font-serif text-base font-semibold text-navy">
+          <h3 className="mb-2 mt-1 text-base font-bold text-ink">
             {children}
           </h3>
         ),
         p: ({ children }) => (
-          <p className="mb-3 last:mb-0 leading-relaxed text-navy/90">{children}</p>
+          <p className="mb-3 last:mb-0 leading-relaxed text-ink/90">{children}</p>
         ),
         strong: ({ children }) => (
-          <strong className="font-semibold text-navy">{children}</strong>
+          <strong className="font-semibold text-ink">{children}</strong>
         ),
         ol: ({ children }) => (
-          <ol className="mb-3 ml-4 list-decimal space-y-3 marker:font-semibold marker:text-gold">
+          <ol className="mb-3 ml-4 list-decimal space-y-3 marker:font-semibold marker:text-pink">
             {children}
           </ol>
         ),
         ul: ({ children }) => (
-          <ul className="mb-3 ml-4 list-disc space-y-2 marker:text-gold">{children}</ul>
+          <ul className="mb-3 ml-4 list-disc space-y-2 marker:text-pink">{children}</ul>
         ),
         li: ({ children }) => <li className="pl-1 leading-relaxed">{children}</li>,
         blockquote: ({ children }) => (
-          <blockquote className="mt-3 rounded-lg border-l-4 border-gold/60 bg-amber-50/60 px-3 py-2 text-xs italic text-amber-900">
+          <blockquote className="mt-3 rounded-lg border-l-4 border-pink/60 bg-pink/5 px-3 py-2 text-xs italic text-plum">
             {children}
           </blockquote>
         ),
@@ -76,7 +76,7 @@ export function AssistantMessage({ content, citations }: AssistantMessageProps) 
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-medium text-navy underline decoration-gold/50 hover:text-gold"
+              className="font-medium text-ink underline decoration-pink/50 hover:text-pink"
             >
               {children}
             </a>

@@ -1,9 +1,9 @@
 import json
-from pathlib import Path
 
+from app.config import settings
 from app.models.schemas import UserProfile
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+DATA_DIR = settings.data_dir_path
 PROFILES_FILE = DATA_DIR / "profiles.json"
 
 

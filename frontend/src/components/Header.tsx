@@ -1,10 +1,19 @@
 "use client";
 
-import { Scale, Sparkles } from "lucide-react";
+import {
+  Bell,
+  BookOpen,
+  FileText,
+  Home,
+  MessageSquare,
+  ScanLine,
+  Search,
+  User,
+} from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
-type Tab = "chat" | "profile" | "forms" | "sources";
+export type Tab = "chat" | "profile" | "forms" | "sources";
 
 interface HeaderProps {
   activeTab: Tab;
@@ -14,82 +23,148 @@ interface HeaderProps {
 
 const TAB_IDS: Tab[] = ["chat", "profile", "forms", "sources"];
 
-export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) {
+const TAB_ICONS = {
+  chat: MessageSquare,
+  profile: User,
+  forms: FileText,
+  sources: BookOpen,
+} as const;
+
+const MOBILE_TAB_ICONS = {
+  chat: Home,
+  profile: User,
+  forms: ScanLine,
+  sources: FileText,
+} as const;
+
+function getGreetingKey(): "morning" | "afternoon" | "evening" {
+  const hour = new Date().getHours();
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+}
+
+export function MobileBottomNav({ activeTab, onTabChange }: HeaderProps) {
   const { t } = useTranslation();
 
   return (
-    <header className="z-50 shrink-0 border-b border-navy/10 bg-navy text-white shadow-lg">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/20 ring-1 ring-gold/40">
-            <Scale className="h-5 w-5 text-gold-light" />
-          </div>
-          <div>
-            <h1 className="font-serif text-xl font-semibold tracking-tight">
-              Fine<span className="text-gold-light">Lens</span>
-            </h1>
-            <p className="hidden text-xs text-white/60 sm:block">{t("header.tagline")}</p>
-          </div>
-        </div>
-
-        <nav className="hidden items-center gap-1 md:flex">
-          {TAB_IDS.map((tab) => (
+    <nav
+      aria-label={t("layout.mobile.mainNav")}
+      className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] md:hidden"
+    >
+      <div className="mx-auto flex max-w-lg items-center justify-around rounded-[1.75rem] bg-white px-2 py-2 shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
+        {TAB_IDS.map((tab) => {
+          const Icon = MOBILE_TAB_ICONS[tab];
+          const isActive = activeTab === tab;
+          return (
             <button
               key={tab}
+              type="button"
               onClick={() => onTabChange(tab)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab
-                  ? "bg-gold text-navy"
-                  : "text-white/70 hover:bg-white/10 hover:text-white"
+              className={`relative flex min-h-[3rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-2 py-1.5 transition touch-manipulation ${
+                isActive
+                  ? "bg-pink text-white shadow-sm"
+                  : "text-ink-muted active:text-ink"
               }`}
             >
-              {t(`header.tabs.${tab}`)}
-            </button>
-          ))}
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher />
-          <a
-            href="/demo"
-            className="hidden rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 transition hover:border-gold/40 hover:text-gold-light sm:inline"
-          >
-            {t("common.demo")}
-          </a>
-          {graphConnected !== null && (
-            <span
-              className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:flex ${
-                graphConnected
-                  ? "bg-green-500/20 text-green-300"
-                  : "bg-amber-500/20 text-amber-300"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  graphConnected ? "bg-green-400" : "bg-amber-400"
-                }`}
+              <Icon
+                className="h-5 w-5 shrink-0"
+                strokeWidth={isActive ? 2.25 : 1.75}
               />
-              {t("header.graphLabel")}{" "}
-              {graphConnected ? t("header.graphConnected") : t("header.graphOffline")}
-            </span>
-          )}
-          <Sparkles className="h-4 w-4 text-gold-light md:hidden" />
-        </div>
+              <span
+                className={`max-w-full truncate text-[10px] font-semibold leading-tight ${
+                  isActive ? "text-white" : "font-medium"
+                }`}
+              >
+                {t(`header.tabs.${tab}`)}
+              </span>
+            </button>
+          );
+        })}
       </div>
+    </nav>
+  );
+}
 
-      <nav className="flex gap-1 overflow-x-auto border-t border-white/10 px-4 py-2 md:hidden">
-        {TAB_IDS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => onTabChange(tab)}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${
-              activeTab === tab ? "bg-gold text-navy" : "text-white/70"
-            }`}
-          >
-            {t(`header.tabs.${tab}`)}
-          </button>
-        ))}
-      </nav>
+export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) {
+  const { t } = useTranslation();
+  const greetingKey = getGreetingKey();
+
+  return (
+    <header className="z-40 shrink-0 bg-white px-4 pb-3 pt-safe shadow-[0_2px_12px_rgba(0,0,0,0.04)] sm:px-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="flex items-center justify-between gap-3 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-pink/15">
+              <Search className="h-4 w-4 text-pink" strokeWidth={2.5} />
+            </div>
+            <h1 className="truncate text-lg font-bold tracking-tight text-ink sm:text-xl">
+              FineLens
+            </h1>
+          </div>
+
+          <nav className="hidden items-center gap-1 md:flex">
+            {TAB_IDS.map((tab) => {
+              const Icon = TAB_ICONS[tab];
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => onTabChange(tab)}
+                  className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    activeTab === tab
+                      ? "bg-pink text-white shadow-sm"
+                      : "text-ink-muted hover:bg-surface-warm hover:text-ink"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" strokeWidth={activeTab === tab ? 2.25 : 1.75} />
+                  {t(`header.tabs.${tab}`)}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <LanguageSwitcher />
+            {graphConnected !== null && (
+              <span
+                className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium lg:flex ${
+                  graphConnected
+                    ? "bg-green-50 text-green-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    graphConnected ? "bg-green-500" : "bg-amber-500"
+                  }`}
+                />
+                {t("header.graphLabel")}{" "}
+                {graphConnected ? t("header.graphConnected") : t("header.graphOffline")}
+              </span>
+            )}
+            <button
+              type="button"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-surface-warm text-ink-muted transition hover:bg-pink/10 hover:text-pink"
+              aria-label={t("header.notifications")}
+            >
+              <Bell className="h-4 w-4" />
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                2
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {activeTab === "chat" && (
+          <div className="md:pb-1">
+            <p className="text-sm text-ink-muted">{t("header.greeting.hello")}</p>
+            <p className="text-2xl font-bold text-ink sm:text-3xl">
+              {t(`header.greeting.${greetingKey}`)}
+            </p>
+          </div>
+        )}
+      </div>
     </header>
   );
 }

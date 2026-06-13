@@ -1,11 +1,11 @@
 import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 
+from app.config import settings
 from app.models.schemas import ChatSession, ChatSessionSummary, StoredChatMessage
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+DATA_DIR = settings.data_dir_path
 CHATS_FILE = DATA_DIR / "chats.json"
 
 

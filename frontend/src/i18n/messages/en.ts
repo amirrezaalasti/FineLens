@@ -29,11 +29,18 @@ export const en = {
   },
   header: {
     tagline: "Graph-Enhanced Legal Intelligence",
+    greeting: {
+      hello: "Hello, Lena",
+      morning: "Good morning",
+      afternoon: "Good afternoon",
+      evening: "Good evening",
+    },
+    notifications: "Notifications",
     tabs: {
-      chat: "Advice",
-      profile: "My Profile",
-      forms: "Forms",
-      sources: "Sources",
+      chat: "Home",
+      profile: "Profile",
+      forms: "Scan",
+      sources: "Cases",
     },
     graphConnected: "connected",
     graphOffline: "offline",
@@ -52,6 +59,9 @@ export const en = {
     emptyTitle: "How can I help you?",
     emptyDescription:
       "FineLens searches German legal sources via a Graphiti knowledge graph and shows you transparently where each piece of information comes from.",
+    heroSaved: "Already saved this much",
+    heroAmount: "€548",
+    heroCta: "Start saving money!",
     starters: [
       "What are my rights when my rent is increased?",
       "How do I submit a GDPR data access request?",
@@ -78,6 +88,7 @@ export const en = {
   },
   sidebar: {
     newChat: "New chat",
+    chatLabel: "Case",
     loadingChats: "Loading chats...",
     noChats: "No saved chats yet",
     deleteChat: "Delete chat",
@@ -152,5 +163,12 @@ export const en = {
   },
   layout: {
     resizePanels: "Adjust panel width",
+    mobile: {
+      chats: "Chats",
+      chat: "Chat",
+      sources: "Sources",
+      panelNav: "Chat sections",
+      mainNav: "Main navigation",
+    },
   },
 } as const;

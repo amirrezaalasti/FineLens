@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File } from "lucide-react";
+import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Info, Shield } from "lucide-react";
 import { getChatSession, sendChat, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
@@ -65,6 +65,7 @@ export function ChatPanel({
     for (let i = 0; i < files.length; i++) {
       try {
         const att = await uploadFile(files[i]);
+        att.isPending = true;
         newAttachments.push(att);
       } catch (err) {
         console.error("Failed to upload file:", err);
@@ -470,7 +471,9 @@ export function ChatPanel({
             {attachments.map((att, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy"
+                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy cursor-pointer hover:bg-navy/10 transition-colors"
+                onClick={() => onAttachmentSelect?.(att)}
+                title="In Dokumenten-Analyse anzeigen"
               >
                 {att.file_type.startsWith("image/") ? (
                   <FileImage className="h-3.5 w-3.5 text-navy/70" />
@@ -482,10 +485,23 @@ export function ChatPanel({
                 <span className="font-medium max-w-[150px] truncate" title={att.name}>
                   {att.name}
                 </span>
+                {att.isPending ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                    Freigabe ausstehend
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-green-100 text-green-800 border border-green-200 gap-0.5 shrink-0">
+                    <Shield className="h-2.5 w-2.5" />
+                    Freigegeben
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => removeAttachment(idx)}
-                  className="rounded-full p-0.5 hover:bg-navy/10 text-slate-400 hover:text-navy transition cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeAttachment(idx);
+                  }}
+                  className="rounded-full p-0.5 hover:bg-navy/15 text-slate-400 hover:text-navy transition cursor-pointer shrink-0"
                   title={t("common.remove")}
                 >
                   <X className="h-3 w-3" />
@@ -500,6 +516,15 @@ export function ChatPanel({
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
             <span>{t("chat.processingFile")}</span>
+          </div>
+        )}
+
+        {attachments.some((att) => att.isPending) && (
+          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2 flex items-center gap-1.5 animate-pulse shrink-0">
+            <Info className="h-4 w-4 shrink-0" />
+            <span>
+              Bitte überprüfen Sie die Schwärzung der hochgeladenen Dokumente im rechten Panel, bevor Sie die Nachricht absenden.
+            </span>
           </div>
         )}
 
@@ -518,14 +543,14 @@ export function ChatPanel({
               className={`w-full rounded-xl border border-navy/15 bg-white pl-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75 ${
                 isSpeechSupported ? "pr-20" : "pr-12"
               }`}
-              disabled={loading || loadingSession || uploading}
+              disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
             />
             <div className="absolute right-2 flex items-center gap-1 z-10">
               {/* File Upload Button */}
               <button
                 type="button"
                 onClick={triggerFileInput}
-                disabled={loading || loadingSession || uploading}
+                disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
                 className="text-slate-400 hover:text-navy hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
                 title={t("chat.uploadFile")}
               >
@@ -545,7 +570,7 @@ export function ChatPanel({
                 <button
                   type="button"
                   onClick={toggleListening}
-                  disabled={loading || loadingSession || uploading}
+                  disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
                   className={`cursor-pointer p-1.5 rounded-lg transition-all duration-300 ${
                     isListening
                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
@@ -564,7 +589,7 @@ export function ChatPanel({
           </div>
           <button
             type="submit"
-            disabled={loading || loadingSession || uploading || (!input.trim() && attachments.length === 0)}
+            disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending) || (!input.trim() && attachments.length === 0)}
             className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
           >
             <Send className="h-4 w-4" />

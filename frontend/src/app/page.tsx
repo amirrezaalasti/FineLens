@@ -15,6 +15,7 @@ import {
   deleteChatSession,
   getHealth,
   listChatSessions,
+  applyRedactions,
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField } from "@/lib/types";
@@ -51,11 +52,28 @@ export default function Home() {
   const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
     setSelectedAttachment(prev => {
       if (!prev) return null;
+      
+      const originalRawText = prev.analysis?.raw_text || prev.content || "";
+      let redactedText = originalRawText;
+      
+      updatedFields.forEach(f => {
+        if (f.is_pii && f.value) {
+          const escapedVal = f.value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          try {
+            const regex = new RegExp(escapedVal, 'g');
+            redactedText = redactedText.replace(regex, '█████');
+          } catch (e) {
+            redactedText = redactedText.split(f.value).join('█████');
+          }
+        }
+      });
+
       const updated = {
         ...prev,
+        content: redactedText,
         analysis: prev.analysis
           ? { ...prev.analysis, fields: updatedFields }
-          : { fields: updatedFields, raw_text: "", preview_image_url: null }
+          : { fields: updatedFields, raw_text: originalRawText, preview_image_url: null }
       };
       setDraftAttachments(drafts =>
         drafts.map(d => d.name === prev.name ? updated : d)
@@ -169,6 +187,7 @@ export default function Home() {
         {tab === "chat" && (
           <div className="h-full min-h-0">
             <ResizableChatLayout
+              isAnalysisActive={activeRightTab === "analysis"}
               sidebar={
                 <ChatSidebar
                   sessions={sessions}
@@ -233,6 +252,65 @@ export default function Home() {
                           setActiveRightTab("citations");
                         }}
                         onUpdateAnalysis={handleUpdateAnalysis}
+                        onReleaseAttachment={async () => {
+                          if (!selectedAttachment) return;
+                          
+                          // Gather active redaction boxes coordinates
+                          const fields = selectedAttachment.analysis?.fields || [];
+                          const redactions: number[][] = [];
+                          fields.forEach(f => {
+                            if (f.is_pii && f.box) {
+                              const p = f.page ?? 0;
+                              if (Array.isArray(f.box[0])) {
+                                const list = f.box as number[][];
+                                list.forEach(boxCoords => {
+                                  redactions.push([...boxCoords, p]);
+                                });
+                              } else {
+                                redactions.push([...(f.box as number[]), p]);
+                              }
+                            }
+                          });
+
+                          try {
+                            const res = await applyRedactions(selectedAttachment.name, redactions);
+                            
+                            setSelectedAttachment(prev => {
+                              if (!prev) return null;
+                              
+                              const updated: Attachment = {
+                                ...prev,
+                                content: res.redacted_text,
+                                isPending: false,
+                                analysis: prev.analysis
+                                  ? {
+                                      ...prev.analysis,
+                                      raw_text: res.redacted_text,
+                                      preview_image_url: res.preview_image_url,
+                                      preview_image_urls: res.preview_image_urls,
+                                      // Clear coordinates and replace values of PII fields since they are now permanently redacted in the image.
+                                      fields: prev.analysis.fields.map(f => 
+                                        f.is_pii ? { ...f, box: null, value: "█████" } : f
+                                      )
+                                    }
+                                  : {
+                                      fields: [],
+                                      raw_text: res.redacted_text,
+                                      preview_image_url: res.preview_image_url,
+                                      preview_image_urls: res.preview_image_urls,
+                                    }
+                              };
+                              
+                              setDraftAttachments(drafts =>
+                                drafts.map(d => d.name === prev.name ? updated : d)
+                              );
+                              return updated;
+                            });
+                          } catch (err) {
+                            console.error("Failed to apply redactions:", err);
+                            alert("Fehler beim Anwenden der Schwärzungen auf der Originaldatei: " + (err instanceof Error ? err.message : String(err)));
+                          }
+                        }}
                       />
                     )}
                   </div>

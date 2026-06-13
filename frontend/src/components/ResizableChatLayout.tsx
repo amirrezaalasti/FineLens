@@ -26,6 +26,7 @@ interface ResizableChatLayoutProps {
   sidebar: ReactNode;
   chat: ReactNode;
   citations: ReactNode;
+  isAnalysisActive?: boolean;
 }
 
 function loadWidths(): PanelWidths {
@@ -90,9 +91,16 @@ function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
   );
 }
 
-export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatLayoutProps) {
+export function ResizableChatLayout({
+  sidebar,
+  chat,
+  citations,
+  isAnalysisActive,
+}: ResizableChatLayoutProps) {
   const [widths, setWidths] = useState<PanelWidths>(DEFAULT_WIDTHS);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastNormalWidth = useRef(DEFAULT_WIDTHS.citations);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     setWidths(loadWidths());
@@ -101,6 +109,29 @@ export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatL
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
   }, [widths]);
+
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    if (isAnalysisActive) {
+      lastNormalWidth.current = widths.citations;
+      setWidths((prev) => {
+        const containerWidth = containerRef.current?.clientWidth ?? 1200;
+        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
+        const targetCitations = Math.min(Math.max(prev.citations, 750), maxCitations);
+        return { ...prev, citations: targetCitations };
+      });
+    } else {
+      setWidths((prev) => {
+        const containerWidth = containerRef.current?.clientWidth ?? 1200;
+        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
+        const targetCitations = Math.min(lastNormalWidth.current, maxCitations);
+        return { ...prev, citations: targetCitations };
+      });
+    }
+  }, [isAnalysisActive]);
 
   const clampWidths = useCallback((next: PanelWidths): PanelWidths => {
     const containerWidth = containerRef.current?.clientWidth ?? 1200;

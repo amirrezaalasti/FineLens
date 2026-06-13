@@ -10,6 +10,22 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+function attachmentsForApi(attachments?: Attachment[]): Attachment[] {
+  if (!attachments?.length) return [];
+  return attachments.map((attachment) => {
+    if (!attachment.analysis?.preview_image_url) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      analysis: {
+        ...attachment.analysis,
+        preview_image_url: null,
+      },
+    };
+  });
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -45,9 +61,12 @@ export async function sendChat(
     body: JSON.stringify({
       message,
       user_id: userId,
-      history,
+      history: history.map((entry) => ({
+        ...entry,
+        attachments: attachmentsForApi(entry.attachments),
+      })),
       session_id: sessionId || null,
-      attachments: attachments || [],
+      attachments: attachmentsForApi(attachments),
       language: language || null,
     }),
   });

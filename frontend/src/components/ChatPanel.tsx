@@ -13,6 +13,7 @@ import {
 } from "@/components/DocumentCaptureSheet";
 import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { prefersNativeCamera, useDocumentCapture } from "@/hooks/useDocumentCapture";
+import { AnalysisLoadingScreen } from "@/components/AnalysisLoadingScreen";
 
 interface InitialFollowUps {
   sessionId: string;
@@ -41,6 +42,7 @@ interface ChatPanelProps {
   onInitialFollowUpsApplied?: () => void;
   initialInput?: string;
   onInitialInputApplied?: () => void;
+  autoSubmitInitialInput?: boolean;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -67,6 +69,7 @@ export function ChatPanel({
   onInitialFollowUpsApplied,
   initialInput,
   onInitialInputApplied,
+  autoSubmitInitialInput,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -101,10 +104,28 @@ export function ChatPanel({
 
   useEffect(() => {
     if (initialInput) {
-      setInput(initialInput);
+      if (autoSubmitInitialInput) {
+        handleSend(initialInput, attachments);
+      } else {
+        setInput(initialInput);
+      }
       onInitialInputAppliedRef.current?.();
     }
-  }, [initialInput]);
+  }, [initialInput, autoSubmitInitialInput, attachments]);
+
+  const [analysisLoadingStep, setAnalysisLoadingStep] = useState(0);
+
+  useEffect(() => {
+    if (loading && messages.length === 0) {
+      setAnalysisLoadingStep(0);
+      const timers = [
+        setTimeout(() => setAnalysisLoadingStep(1), 1200),
+        setTimeout(() => setAnalysisLoadingStep(2), 2400),
+        setTimeout(() => setAnalysisLoadingStep(3), 3600),
+      ];
+      return () => timers.forEach(clearTimeout);
+    }
+  }, [loading, messages.length]);
 
   useEffect(() => {
     if (chatActive) return;
@@ -558,8 +579,21 @@ export function ChatPanel({
             {t("chat.loadingSession")}
           </div>
         ) : messages.length === 0 ? (
-          <div className="space-y-4 py-4">
-            <div className="card-gradient relative overflow-hidden rounded-3xl p-5 text-white shadow-lg">
+          loading ? (
+            <AnalysisLoadingScreen
+              activeStep={analysisLoadingStep}
+              title={t("newChat.loadingTitle")}
+              subtitle={t("newChat.loadingSubtitle")}
+              stepLabels={{
+                reading: t("newChat.loadingSteps.reading"),
+                deadline: t("newChat.loadingSteps.deadline"),
+                amounts: t("newChat.loadingSteps.amounts"),
+                recommendation: t("newChat.loadingSteps.recommendation"),
+              }}
+            />
+          ) : (
+            <div className="space-y-4 py-4">
+              <div className="card-gradient relative overflow-hidden rounded-3xl p-5 text-white shadow-lg">
               <Search className="pointer-events-none absolute -right-4 -top-2 h-32 w-32 text-white/10" strokeWidth={1.25} />
               <div className="relative">
                 <div className="mb-3 flex items-center gap-1.5 text-xs font-medium text-white/90">
@@ -598,7 +632,8 @@ export function ChatPanel({
               </div>
             </div>
           </div>
-        ) : (
+        )
+      ) : (
           messages.map((m, i) => (
             <div
               key={i}

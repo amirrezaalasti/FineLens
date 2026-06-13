@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Header, MobileBottomNav } from "@/components/Header";
 import type { MobileChatPanel } from "@/components/ResizableChatLayout";
 import { ChatPanel } from "@/components/ChatPanel";
-import { NewChatFlow, type NewChatFlowResult } from "@/components/NewChatFlow";
+import { NewChatFlow, type NewChatFlowResult, type FlowPhase, type YellowEnvelopeAnswer } from "@/components/NewChatFlow";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
 import { ResizableChatLayout } from "@/components/ResizableChatLayout";
@@ -55,6 +55,13 @@ function storeJson(key: string, value: unknown) {
   }
 }
 
+function toDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function Home() {
   const { t, locale } = useTranslation();
   const [tab, setTab] = useState<Tab>("chat");
@@ -79,11 +86,18 @@ export default function Home() {
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<Attachment[]>([]);
   const [initialChatInput, setInitialChatInput] = useState("");
+  const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
   const [chatInputFocused, setChatInputFocused] = useState(false);
   const [showNewChatFlow, setShowNewChatFlow] = useState(false);
   const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
   const [initialFollowUps, setInitialFollowUps] = useState<InitialFollowUps | null>(null);
+
+  const [newChatAttachment, setNewChatAttachment] = useState<Attachment | null>(null);
+  const [newChatPhase, setNewChatPhase] = useState<FlowPhase>("upload");
+  const [newChatEventDate, setNewChatEventDate] = useState(() => toDateString(new Date()));
+  const [newChatYellowEnvelope, setNewChatYellowEnvelope] = useState<YellowEnvelopeAnswer | null>(null);
+  const [newChatContext, setNewChatContext] = useState("");
 
   // Load sessionStorage state on client mount to avoid hydration mismatch
   useEffect(() => {
@@ -208,8 +222,10 @@ export default function Home() {
         setDraftAttachments(drafts =>
           drafts.map(d => d.name === prev.name ? updated : d)
         );
+        setNewChatAttachment(updated);
         return updated;
       });
+
     } catch (err) {
       console.error("Failed to apply redactions:", err);
       alert("Fehler beim Anwenden der Schwärzungen auf der Originaldatei: " + (err instanceof Error ? err.message : String(err)));
@@ -283,6 +299,11 @@ export default function Home() {
     setDraftAttachments([]);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
+    setNewChatAttachment(null);
+    setNewChatPhase("upload");
+    setNewChatEventDate(toDateString(new Date()));
+    setNewChatYellowEnvelope(null);
+    setNewChatContext("");
   };
 
   const handleNewChatCancel = () => {
@@ -291,8 +312,64 @@ export default function Home() {
       setActiveSessionId(returnSessionId);
     }
     setReturnSessionId(null);
+    setNewChatAttachment(null);
+    setNewChatPhase("upload");
+    setNewChatEventDate(toDateString(new Date()));
+    setNewChatYellowEnvelope(null);
+    setNewChatContext("");
   };
 
+  const handleGoToRedaction = useCallback((att: Attachment) => {
+    setNewChatAttachment(att);
+    setNewChatPhase("details");
+    const pendingAttachment = {
+      ...att,
+      isPending: true,
+    };
+    setDraftAttachments([pendingAttachment]);
+    setSelectedAttachment(pendingAttachment);
+    setActiveRightTab("analysis");
+  }, []);
+
+  const buildNewChatMessage = useCallback(
+    (result: NewChatFlowResult) => {
+      const eventDateLabel = result.eventDate
+        ? result.eventDate
+        : t("newChat.dateNotSpecified");
+      const yellowEnvelopeLabel =
+        result.yellowEnvelope === "yes"
+          ? t("newChat.envelopeYesLabel")
+          : result.yellowEnvelope === "no"
+            ? t("newChat.envelopeNoLabel")
+            : result.yellowEnvelope === "unknown"
+              ? t("newChat.envelopeUnknownLabel")
+              : t("newChat.envelopeNotSpecified");
+
+      if (!result.context.trim()) {
+        return t("newChat.initialMessageNoContext", {
+          fileName: result.attachment.name,
+          eventDate: eventDateLabel,
+          yellowEnvelope: yellowEnvelopeLabel,
+        });
+      }
+
+      if (result.eventDate) {
+        return t("newChat.initialMessage", {
+          fileName: result.attachment.name,
+          eventDate: eventDateLabel,
+          yellowEnvelope: yellowEnvelopeLabel,
+          context: result.context,
+        });
+      }
+
+      return t("newChat.initialMessageNoDate", {
+        fileName: result.attachment.name,
+        yellowEnvelope: yellowEnvelopeLabel,
+        context: result.context,
+      });
+    },
+    [t]
+  );
 
   const handleNewChatComplete = async (result: NewChatFlowResult) => {
     setShowNewChatFlow(false);
@@ -303,24 +380,33 @@ export default function Home() {
     setActiveSessionId(session.id);
     storeJson(SESSION_STORAGE_KEY, session.id);
 
-    // Setup pending attachment
+    // Setup released attachment
     const attachment = {
       ...result.attachment,
-      isPending: true,
+      isPending: false,
     };
     setDraftAttachments([attachment]);
     setSelectedAttachment(attachment);
 
-    // Open analysis tab and citations area
-    setActiveRightTab("analysis");
+    // Open citations tab
+    setActiveRightTab("citations");
     setMobileChatPanel("chat");
 
-    // Pre-populate input box
-    setInitialChatInput("");
+    // Pre-populate and auto-submit initial message
+    const msg = buildNewChatMessage(result);
+    setInitialChatInput(msg);
+    setPendingInitialMessage(msg);
 
     setCitations([]);
     setTransparencyNote("");
     setInitialFollowUps(null);
+
+    // Reset onboarding states
+    setNewChatAttachment(null);
+    setNewChatPhase("upload");
+    setNewChatEventDate(toDateString(new Date()));
+    setNewChatYellowEnvelope(null);
+    setNewChatContext("");
 
     await refreshSessions();
   };
@@ -331,6 +417,7 @@ export default function Home() {
 
   const handleClearInitialChatInput = useCallback(() => {
     setInitialChatInput("");
+    setPendingInitialMessage(null);
   }, []);
 
   const handleSelectSession = (sessionId: string) => {
@@ -445,8 +532,19 @@ export default function Home() {
             chat={
               showNewChatFlow ? (
                 <NewChatFlow
+                  attachment={newChatAttachment}
+                  setAttachment={setNewChatAttachment}
+                  phase={newChatPhase}
+                  setPhase={setNewChatPhase}
+                  eventDate={newChatEventDate}
+                  setEventDate={setNewChatEventDate}
+                  yellowEnvelope={newChatYellowEnvelope}
+                  setYellowEnvelope={setNewChatYellowEnvelope}
+                  context={newChatContext}
+                  setContext={setNewChatContext}
                   onComplete={handleNewChatComplete}
                   onCancel={handleNewChatCancel}
+                  onGoToRedaction={handleGoToRedaction}
                 />
               ) : (
                 <ChatPanel
@@ -475,6 +573,7 @@ export default function Home() {
                   onInitialFollowUpsApplied={handleInitialFollowUpsApplied}
                   initialInput={initialChatInput}
                   onInitialInputApplied={handleClearInitialChatInput}
+                  autoSubmitInitialInput={!!pendingInitialMessage}
                 />
               )
             }

@@ -136,7 +136,7 @@ export const en = {
   },
   newChat: {
     title: "New case",
-    subtitle: "Upload your document, add context, then chat with FineLens",
+    subtitle: "Upload your document, add details, then start the analysis",
     steps: {
       upload: "Document",
       details: "Details",
@@ -148,20 +148,57 @@ export const en = {
     uploaded: "Document ready",
     changeDocument: "Choose a different document",
     processingDocument: "Processing document...",
+    receivedDateTitle: "When did you receive this letter?",
+    envelopeQuestion: "Was the letter in a yellow envelope?",
+    envelopeHint:
+      "A yellow envelope often indicates official delivery — this can matter for deadlines.",
+    envelopeYes: "Yes",
+    envelopeNo: "No",
+    envelopeUnknown: "Don't know",
+    contextTitle: "What is it about? Tell us briefly.",
+    contextPlaceholder:
+      "For example: I don't understand why I should pay back money...",
+    speakInstead: "Speak instead",
+    startAnalysis: "Start analysis",
+    skip: "Skip",
+    loadingTitle: "One moment...",
+    loadingSubtitle: "We're reading your notice carefully.",
+    loadingErrorTitle: "Analysis failed",
+    analysisFailed: "The analysis could not be completed.",
+    retryAnalysis: "Try again",
+    loadingSteps: {
+      reading: "Reading document",
+      deadline: "Calculating deadline",
+      amounts: "Checking amounts",
+      recommendation: "Creating recommendation",
+    },
+    weekdays: {
+      mon: "Mon",
+      tue: "Tue",
+      wed: "Wed",
+      thu: "Thu",
+      fri: "Fri",
+      sat: "Sat",
+      sun: "Sun",
+    },
     detailsTitle: "Tell us more",
     detailsDescription:
       "When did this happen? Add any context that helps us understand your situation.",
     eventDate: "When did this happen?",
     context: "What happened? (context)",
-    contextPlaceholder:
-      "e.g. I received this letter from the BAföG office and I'm not sure whether I need to repay the amount...",
-    startChat: "Start chat",
+    startChat: "Start analysis",
     cancel: "Cancel",
     initialMessage:
-      "I've uploaded a document ({fileName}).\n\nWhen it happened: {eventDate}\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
+      "I've uploaded a document ({fileName}).\n\nLetter received on: {eventDate}\nYellow envelope: {yellowEnvelope}\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
     initialMessageNoDate:
-      "I've uploaded a document ({fileName}).\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
+      "I've uploaded a document ({fileName}).\n\nYellow envelope: {yellowEnvelope}\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
+    initialMessageNoContext:
+      "I've uploaded a document ({fileName}).\n\nLetter received on: {eventDate}\nYellow envelope: {yellowEnvelope}\n\nPlease analyze this document and advise me on my options.",
     dateNotSpecified: "Not specified",
+    envelopeNotSpecified: "Not specified",
+    envelopeYesLabel: "Yes",
+    envelopeNoLabel: "No",
+    envelopeUnknownLabel: "Don't know",
   },
   sidebar: {
     newChat: "New chat",

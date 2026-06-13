@@ -14,10 +14,9 @@ import {
 import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { prefersNativeCamera, useDocumentCapture } from "@/hooks/useDocumentCapture";
 
-interface BootstrapMessage {
+interface InitialFollowUps {
   sessionId: string;
-  text: string;
-  attachments: Attachment[];
+  questions: string[];
 }
 
 interface ChatPanelProps {
@@ -38,8 +37,8 @@ interface ChatPanelProps {
   sourcesCount?: number;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
-  bootstrapMessage?: BootstrapMessage | null;
-  onBootstrapComplete?: () => void;
+  initialFollowUps?: InitialFollowUps | null;
+  onInitialFollowUpsApplied?: () => void;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -62,8 +61,8 @@ export function ChatPanel({
   sourcesCount = 0,
   attachments,
   setAttachments,
-  bootstrapMessage = null,
-  onBootstrapComplete,
+  initialFollowUps = null,
+  onInitialFollowUpsApplied,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -86,7 +85,6 @@ export function ChatPanel({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputEditable, setInputEditable] = useState(false);
-  const bootstrapSentRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -323,9 +321,9 @@ export function ChatPanel({
   onDemoLoadedRef.current = onDemoLoaded;
 
   const applyLoadedSession = useCallback(
-    (session: Awaited<ReturnType<typeof getChatSession>>) => {
+    (session: Awaited<ReturnType<typeof getChatSession>>, followUps?: string[]) => {
       setMessages(session.messages);
-      setFollowUps([]);
+      setFollowUps(followUps ?? []);
 
       const lastAssistant = [...session.messages]
         .reverse()
@@ -358,7 +356,12 @@ export function ChatPanel({
       try {
         const session = await getChatSession(sessionId, userId);
         if (cancelled) return;
-        applyLoadedSession(session);
+        const followUps =
+          initialFollowUps?.sessionId === sessionId
+            ? initialFollowUps.questions
+            : undefined;
+        applyLoadedSession(session, followUps);
+        if (followUps) onInitialFollowUpsApplied?.();
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "";
@@ -380,7 +383,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, sessionsLoading, userId, onSessionIdChange, applyLoadedSession]);
+  }, [sessionId, sessionsLoading, userId, onSessionIdChange, applyLoadedSession, initialFollowUps, onInitialFollowUpsApplied]);
 
   const handleRefreshSample = async () => {
     setRefreshingSample(true);
@@ -473,35 +476,6 @@ export function ChatPanel({
       setLoading(false);
     }
   };
-
-  const handleSendRef = useRef(handleSend);
-  handleSendRef.current = handleSend;
-
-  useEffect(() => {
-    if (
-      !bootstrapMessage ||
-      !sessionId ||
-      bootstrapMessage.sessionId !== sessionId ||
-      loadingSession ||
-      sessionsLoading
-    ) {
-      return;
-    }
-
-    const bootstrapKey = `${bootstrapMessage.sessionId}:${bootstrapMessage.text}`;
-    if (bootstrapSentRef.current === bootstrapKey) return;
-
-    bootstrapSentRef.current = bootstrapKey;
-    void handleSendRef
-      .current(bootstrapMessage.text, bootstrapMessage.attachments)
-      .finally(() => onBootstrapComplete?.());
-  }, [
-    bootstrapMessage,
-    sessionId,
-    loadingSession,
-    sessionsLoading,
-    onBootstrapComplete,
-  ]);
 
   return (
     <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">

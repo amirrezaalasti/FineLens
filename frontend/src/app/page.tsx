@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Header, MobileBottomNav } from "@/components/Header";
 import type { MobileChatPanel } from "@/components/ResizableChatLayout";
 import { ChatPanel } from "@/components/ChatPanel";
-import { NewChatFlow } from "@/components/NewChatFlow";
+import { NewChatFlow, type NewChatAnalysisResult, type NewChatFlowResult } from "@/components/NewChatFlow";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
 import { ResizableChatLayout } from "@/components/ResizableChatLayout";
@@ -18,14 +18,14 @@ import {
   getHealth,
   listChatSessions,
   seedBafogDemo,
+  sendChat,
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField, SourceViewPayload } from "@/lib/types";
 
-interface BootstrapMessage {
+interface InitialFollowUps {
   sessionId: string;
-  text: string;
-  attachments: Attachment[];
+  questions: string[];
 }
 
 type Tab = "chat" | "profile" | "forms" | "sources";
@@ -85,7 +85,7 @@ export default function Home() {
   const [chatInputFocused, setChatInputFocused] = useState(false);
   const [showNewChatFlow, setShowNewChatFlow] = useState(false);
   const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
-  const [bootstrapMessage, setBootstrapMessage] = useState<BootstrapMessage | null>(null);
+  const [initialFollowUps, setInitialFollowUps] = useState<InitialFollowUps | null>(null);
 
   const handleTabChange = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -206,48 +206,110 @@ export default function Home() {
     setReturnSessionId(null);
   };
 
-  const handleNewChatComplete = async (result: {
-    attachment: Attachment;
-    eventDate: string;
-    context: string;
-  }) => {
-    const session = await createChatSession(USER_ID);
-    const eventDateLabel = result.eventDate
-      ? result.eventDate
-      : t("newChat.dateNotSpecified");
-    const messageText = result.eventDate
-      ? t("newChat.initialMessage", {
+  const buildNewChatMessage = useCallback(
+    (result: NewChatFlowResult) => {
+      const eventDateLabel = result.eventDate
+        ? result.eventDate
+        : t("newChat.dateNotSpecified");
+      const yellowEnvelopeLabel =
+        result.yellowEnvelope === "yes"
+          ? t("newChat.envelopeYesLabel")
+          : result.yellowEnvelope === "no"
+            ? t("newChat.envelopeNoLabel")
+            : result.yellowEnvelope === "unknown"
+              ? t("newChat.envelopeUnknownLabel")
+              : t("newChat.envelopeNotSpecified");
+
+      if (!result.context.trim()) {
+        return t("newChat.initialMessageNoContext", {
           fileName: result.attachment.name,
           eventDate: eventDateLabel,
-          context: result.context,
-        })
-      : t("newChat.initialMessageNoDate", {
+          yellowEnvelope: yellowEnvelopeLabel,
+        });
+      }
+
+      if (result.eventDate) {
+        return t("newChat.initialMessage", {
           fileName: result.attachment.name,
+          eventDate: eventDateLabel,
+          yellowEnvelope: yellowEnvelopeLabel,
           context: result.context,
         });
+      }
 
-    setBootstrapMessage({
-      sessionId: session.id,
-      text: messageText,
-      attachments: [result.attachment],
-    });
+      return t("newChat.initialMessageNoDate", {
+        fileName: result.attachment.name,
+        yellowEnvelope: yellowEnvelopeLabel,
+        context: result.context,
+      });
+    },
+    [t]
+  );
+
+  const handleNewChatAnalyze = useCallback(
+    async (result: NewChatFlowResult): Promise<NewChatAnalysisResult> => {
+      const session = await createChatSession(USER_ID);
+      const messageText = buildNewChatMessage(result);
+      const res = await sendChat(
+        messageText,
+        USER_ID,
+        [],
+        session.id,
+        [result.attachment],
+        locale
+      );
+
+      const sessionId = res.session_id || session.id;
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: res.answer,
+        citations: res.citations,
+        transparency_note: res.transparency_note,
+        suggested_forms: res.suggested_forms,
+      };
+
+      return {
+        sessionId,
+        attachment: result.attachment,
+        assistantMessage,
+        followUpQuestions: res.follow_up_questions || [],
+      };
+    },
+    [buildNewChatMessage, locale]
+  );
+
+  const handleNewChatComplete = async (analysis: NewChatAnalysisResult) => {
     setShowNewChatFlow(false);
     setReturnSessionId(null);
-    setActiveSessionId(session.id);
-    setSelectedAttachment(result.attachment);
+    setActiveSessionId(analysis.sessionId);
+    setSelectedAttachment(analysis.attachment);
     setDraftAttachments([]);
-    setActiveRightTab("analysis");
+    setActiveRightTab("citations");
+    setMobileChatPanel("chat");
+    setCitations(analysis.assistantMessage.citations || []);
+    setTransparencyNote(analysis.assistantMessage.transparency_note || "");
+    if (analysis.assistantMessage.suggested_forms?.length) {
+      handleFormSuggest(analysis.assistantMessage.suggested_forms);
+    }
+    if (analysis.followUpQuestions.length > 0) {
+      setInitialFollowUps({
+        sessionId: analysis.sessionId,
+        questions: analysis.followUpQuestions,
+      });
+    } else {
+      setInitialFollowUps(null);
+    }
     await refreshSessions();
   };
 
-  const handleBootstrapComplete = useCallback(() => {
-    setBootstrapMessage(null);
+  const handleInitialFollowUpsApplied = useCallback(() => {
+    setInitialFollowUps(null);
   }, []);
 
   const handleSelectSession = (sessionId: string) => {
     setShowNewChatFlow(false);
     setReturnSessionId(null);
-    setBootstrapMessage(null);
+    setInitialFollowUps(null);
     setActiveSessionId(sessionId);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
@@ -344,6 +406,7 @@ export default function Home() {
             chat={
               showNewChatFlow ? (
                 <NewChatFlow
+                  onAnalyze={handleNewChatAnalyze}
                   onComplete={handleNewChatComplete}
                   onCancel={handleNewChatCancel}
                 />
@@ -366,12 +429,12 @@ export default function Home() {
                   sourcesCount={citations.length}
                   attachments={draftAttachments}
                   setAttachments={setDraftAttachments}
-                  bootstrapMessage={
-                    bootstrapMessage && bootstrapMessage.sessionId === activeSessionId
-                      ? bootstrapMessage
+                  initialFollowUps={
+                    initialFollowUps && initialFollowUps.sessionId === activeSessionId
+                      ? initialFollowUps
                       : null
                   }
-                  onBootstrapComplete={handleBootstrapComplete}
+                  onInitialFollowUpsApplied={handleInitialFollowUpsApplied}
                 />
               )
             }

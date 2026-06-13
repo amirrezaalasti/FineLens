@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -12,6 +11,7 @@ import {
 } from "lucide-react";
 import { KnowledgeGraphViz } from "@/components/demo/KnowledgeGraphViz";
 import { PipelineFlow } from "@/components/demo/PipelineFlow";
+import { Logo } from "@/components/Logo";
 
 const FEATURES = [
   {
@@ -52,13 +52,7 @@ export default function DemoPage() {
       <nav className="sticky top-0 z-50 border-b border-navy/10 bg-navy/95 text-white backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5">
           <Link href="/demo" className="flex items-center gap-2.5">
-            <Image
-              src="/logo.jpeg"
-              alt="FineLens"
-              width={100}
-              height={36}
-              className="h-8 w-auto rounded-lg bg-white px-1.5 py-0.5 object-contain"
-            />
+            <Logo variant="light" size="sm" />
             <span className="hidden rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold-light sm:inline">
               Demo
             </span>

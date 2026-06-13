@@ -18,6 +18,18 @@ const SOURCE_LABELS: Record<string, string> = {
   "buzer.de": "buzer.de",
 };
 
+function isPortalHomepage(url: string): boolean {
+  const normalized = url.replace(/\/$/, "");
+  return [
+    "https://www.gesetze-im-internet.de",
+    "https://www.recht.bund.de/de/home/home_node.html",
+    "https://beck-online.beck.de/Home",
+    "https://www.juris.de/jportal/nav/index.jsp",
+    "https://www.buzer.de",
+    "https://de.openlegaldata.io",
+  ].some((portal) => normalized === portal.replace(/\/$/, ""));
+}
+
 export function CitationsPanel({ citations, transparencyNote }: CitationsPanelProps) {
   const { t } = useTranslation();
 
@@ -74,7 +86,7 @@ export function CitationsPanel({ citations, transparencyNote }: CitationsPanelPr
                   {c.excerpt}
                 </blockquote>
 
-                {c.source_url && (
+                {c.source_url && !isPortalHomepage(c.source_url) && (
                   <a
                     href={c.source_url}
                     target="_blank"

@@ -404,7 +404,7 @@ Mit freundlichen Grüßen
         "title": "Widerspruch gegen BAföG-Rückbescheid",
         "description": "Formular zur Geltendmachung eines Widerspruchs gegen einen BAföG-Rückforderungsbescheid (z.B. vom Bundesverwaltungsamt).",
         "category": "Verwaltungsrecht / BAföG",
-        "legal_basis": ["§ 20 BAföG", "§ 50 BAföG", "§ 45 SGB X"],
+        "legal_basis": ["§ 20 BAföG", "§ 45 SGB X", "§ 50 SGB X"],
         "source_url": "https://www.gesetze-im-internet.de/baf_g/__20.html",
         "body_template": """\
 {{authority_name}}
@@ -495,6 +495,7 @@ TOPIC_TO_FORM: dict[str, str] = {
 }
 
 # Document scenarios: when markers match, suggest these forms in order (max 3).
+# Order matters: specific document types before broad keyword patterns (e.g. DSGVO).
 DOCUMENT_SCENARIO_FORMS: list[tuple[re.Pattern[str], list[str]]] = [
     (
         re.compile(
@@ -505,6 +506,15 @@ DOCUMENT_SCENARIO_FORMS: list[tuple[re.Pattern[str], list[str]]] = [
             re.I,
         ),
         ["bussgeld-einspruch", "bussgeld-akteneinsicht", "bussgeld-fahrer-benennen"],
+    ),
+    (
+        re.compile(
+            r"\b(bafög|bafoeg|baföeg|rückbescheid|rueckbescheid|"
+            r"ausbildungsförderung|ausbildungsfoerderung|"
+            r"darlehenskasse|bva|bundesverwaltungsamt)\b",
+            re.I,
+        ),
+        ["bafoeg-widerspruch"],
     ),
     (
         re.compile(r"\b(mieterhöhung|mieterhoehung|mietzinserhöhung)\b", re.I),
@@ -521,10 +531,6 @@ DOCUMENT_SCENARIO_FORMS: list[tuple[re.Pattern[str], list[str]]] = [
     (
         re.compile(r"\b(arbeitszeugnis|arbeitgeberzeugnis)\b", re.I),
         ["arbeitszeugnis"],
-    ),
-    (
-        re.compile(r"\b(bafög|bafoeg|ausbildungsförderung|rückbescheid|darlehenskasse|bva|bundesverwaltungsamt)\b", re.I),
-        ["bafoeg-widerspruch"],
     ),
 ]
 
@@ -546,11 +552,30 @@ def _compose_value(profile: UserProfile, keys: tuple[str, ...] | None) -> str:
     return " ".join(parts).strip()
 
 
-def _build_context_blob(message: str, attachments: list[Attachment] | None) -> str:
+def _keyword_in_blob(keyword: str, blob: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(keyword)}\b", blob, re.I))
+
+
+def _build_context_blob(
+    message: str,
+    attachments: list[Attachment] | None,
+    history: list | None = None,
+) -> str:
     parts = [message]
     for att in attachments or []:
         parts.append(att.name)
         parts.append(att.content[:6000] if att.content else "")
+    for msg in history or []:
+        msg_attachments = getattr(msg, "attachments", None) or (
+            msg.get("attachments") if isinstance(msg, dict) else None
+        )
+        for att in msg_attachments or []:
+            name = getattr(att, "name", None) or (att.get("name") if isinstance(att, dict) else "")
+            content = getattr(att, "content", None) or (
+                att.get("content") if isinstance(att, dict) else ""
+            )
+            parts.append(name or "")
+            parts.append((content or "")[:6000])
     return "\n".join(parts).lower()
 
 
@@ -667,11 +692,19 @@ def suggest_forms_for_context(
     attachments: list[Attachment] | None = None,
     max_forms: int = 3,
     language: str = "de",
+    history: list | None = None,
 ) -> list[LegalForm]:
     """Suggest forms from message, attachments, and profile — prioritizes document scenarios."""
-    blob = _build_context_blob(message, attachments)
+    all_attachments = list(attachments or [])
+    for msg in history or []:
+        msg_attachments = getattr(msg, "attachments", None) or (
+            msg.get("attachments") if isinstance(msg, dict) else None
+        )
+        all_attachments.extend(msg_attachments or [])
+
+    blob = _build_context_blob(message, all_attachments)
     matched_ids: list[str] = []
-    has_attachment = bool(attachments)
+    has_attachment = bool(all_attachments)
 
     # 1) Document scenario match (highest priority when a file is attached)
     if has_attachment:
@@ -679,26 +712,33 @@ def suggest_forms_for_context(
             if pattern.search(blob):
                 for form_id in form_ids:
                     _append_unique(matched_ids, form_id, max_forms)
-                break
+                lang = _normalize_language(language, profile)
+                forms = [build_form(fid, profile, lang) for fid in matched_ids[:max_forms]]
+                return [f for f in forms if f is not None]
 
-        # Generic "explain this document" + traffic-related filename
-        if not matched_ids and _GENERIC_DOCUMENT_RE.search(message):
+        # Generic "explain this document" + scenario keywords in filename/content
+        if _GENERIC_DOCUMENT_RE.search(message):
             for pattern, form_ids in DOCUMENT_SCENARIO_FORMS:
                 if pattern.search(blob):
                     for form_id in form_ids:
                         _append_unique(matched_ids, form_id, max_forms)
                     break
 
-    # 2) Keyword match in full context
+    if matched_ids:
+        lang = _normalize_language(language, profile)
+        forms = [build_form(fid, profile, lang) for fid in matched_ids[:max_forms]]
+        return [f for f in forms if f is not None]
+
+    # 2) Keyword match in full context (word boundaries to avoid false positives)
     for keyword, form_id in TOPIC_TO_FORM.items():
-        if keyword in blob:
+        if _keyword_in_blob(keyword, blob):
             _append_unique(matched_ids, form_id, max_forms)
 
     # 3) Profile topic
     if profile.legal_topic:
         topic_lower = profile.legal_topic.lower()
         for keyword, form_id in TOPIC_TO_FORM.items():
-            if keyword in topic_lower:
+            if _keyword_in_blob(keyword, topic_lower):
                 _append_unique(matched_ids, form_id, max_forms)
 
     # 4) When any attachment is present but nothing matched, default to objection template

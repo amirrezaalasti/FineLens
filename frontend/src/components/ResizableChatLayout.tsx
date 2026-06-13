@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { MessageSquare, MessagesSquare, Shield } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { useTranslation } from "@/i18n";
 
 const STORAGE_KEY = "finelens-panel-widths";
@@ -96,54 +96,26 @@ function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
   );
 }
 
-function MobilePanelTabs({
-  active,
-  onChange,
-  sourcesBadge,
+function MobileSubpanelHeader({
+  title,
+  onBack,
 }: {
-  active: MobileChatPanel;
-  onChange: (panel: MobileChatPanel) => void;
-  sourcesBadge?: number;
+  title: string;
+  onBack: () => void;
 }) {
   const { t } = useTranslation();
 
-  const tabs: { id: MobileChatPanel; icon: typeof MessageSquare; label: string }[] = [
-    { id: "sidebar", icon: MessagesSquare, label: t("layout.mobile.chats") },
-    { id: "chat", icon: MessageSquare, label: t("layout.mobile.chat") },
-    { id: "sources", icon: Shield, label: t("layout.mobile.sources") },
-  ];
-
   return (
-    <div
-      role="tablist"
-      aria-label={t("layout.mobile.panelNav")}
-      className="mb-3 flex shrink-0 gap-1 rounded-2xl border border-ink/10 bg-surface-warm p-1 lg:hidden"
-    >
-      {tabs.map(({ id, icon: Icon, label }) => {
-        const isActive = active === id;
-        return (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={isActive}
-            type="button"
-            onClick={() => onChange(id)}
-            className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold transition touch-manipulation ${
-              isActive
-                ? "bg-pink text-white shadow-sm"
-                : "text-ink-muted active:bg-white/60"
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span>{label}</span>
-            {id === "sources" && sourcesBadge != null && sourcesBadge > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-pink px-1 text-[9px] font-bold text-white">
-                {sourcesBadge > 9 ? "9+" : sourcesBadge}
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <div className="mb-3 flex shrink-0 items-center gap-2 lg:hidden">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm font-semibold text-ink transition touch-manipulation active:bg-surface-warm"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        {t("common.back")}
+      </button>
+      <h2 className="truncate text-sm font-bold text-ink">{title}</h2>
     </div>
   );
 }
@@ -154,8 +126,8 @@ export function ResizableChatLayout({
   citations,
   mobilePanel: controlledPanel,
   onMobilePanelChange,
-  sourcesBadge,
 }: ResizableChatLayoutProps) {
+  const { t } = useTranslation();
   const [widths, setWidths] = useState<PanelWidths>(DEFAULT_WIDTHS);
   const [internalPanel, setInternalPanel] = useState<MobileChatPanel>("chat");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -199,13 +171,20 @@ export function ResizableChatLayout({
 
   return (
     <>
-      {/* Mobile: single active panel with top tab switcher */}
+      {/* Mobile: single active panel; sub-panels use a back header instead of a tab bar */}
       <div className="flex h-full min-h-0 flex-col overflow-hidden lg:hidden">
-        <MobilePanelTabs
-          active={mobilePanel}
-          onChange={setMobilePanel}
-          sourcesBadge={sourcesBadge}
-        />
+        {mobilePanel === "sidebar" && (
+          <MobileSubpanelHeader
+            title={t("layout.mobile.chats")}
+            onBack={() => setMobilePanel("chat")}
+          />
+        )}
+        {mobilePanel === "sources" && (
+          <MobileSubpanelHeader
+            title={t("layout.mobile.sources")}
+            onBack={() => setMobilePanel("chat")}
+          />
+        )}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <div
             className={`absolute inset-0 overflow-hidden ${

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   BookOpen,
   FileText,
@@ -11,6 +10,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { Logo } from "@/components/Logo";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 
 export type Tab = "chat" | "profile" | "forms" | "sources";
@@ -19,6 +19,7 @@ interface HeaderProps {
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
   graphConnected: boolean | null;
+  hideBottomNav?: boolean;
 }
 
 const TAB_IDS: Tab[] = ["chat", "profile", "forms", "sources"];
@@ -37,20 +38,16 @@ const MOBILE_TAB_ICONS = {
   sources: FileText,
 } as const;
 
-function getGreetingKey(): "morning" | "afternoon" | "evening" {
-  const hour = new Date().getHours();
-  if (hour < 12) return "morning";
-  if (hour < 18) return "afternoon";
-  return "evening";
-}
-
-export function MobileBottomNav({ activeTab, onTabChange }: HeaderProps) {
+export function MobileBottomNav({ activeTab, onTabChange, hideBottomNav }: HeaderProps) {
   const { t } = useTranslation();
 
   return (
     <nav
       aria-label={t("layout.mobile.mainNav")}
-      className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] md:hidden"
+      aria-hidden={hideBottomNav}
+      className={`fixed inset-x-0 bottom-0 z-50 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] transition-transform duration-200 ease-out md:hidden ${
+        hideBottomNav ? "pointer-events-none translate-y-full" : "translate-y-0"
+      }`}
     >
       <div className="mx-auto flex max-w-lg items-center justify-around rounded-[1.75rem] bg-white px-2 py-2 shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
         {TAB_IDS.map((tab) => {
@@ -88,22 +85,24 @@ export function MobileBottomNav({ activeTab, onTabChange }: HeaderProps) {
 
 export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) {
   const { t } = useTranslation();
-  const greetingKey = getGreetingKey();
 
   return (
     <header className="z-40 shrink-0 bg-white px-4 pb-3 pt-safe shadow-[0_2px_12px_rgba(0,0,0,0.04)] sm:px-6">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-center justify-between gap-3 py-3">
-          <div className="flex min-w-0 shrink-0 items-center">
-            <Image
-              src="/logo.jpeg"
-              alt="FineLens"
-              width={120}
-              height={40}
-              className="h-9 w-auto object-contain sm:h-10"
-              priority
-            />
-          </div>
+          {activeTab === "chat" ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <Logo showText={false} size="lg" className="shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xl font-bold leading-tight text-pink sm:text-2xl">FineLens</p>
+                <p className="mt-0.5 text-sm text-ink-muted">{t("header.greeting.hello")}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-w-0 shrink-0 items-center">
+              <Logo size="md" />
+            </div>
+          )}
 
           <nav className="hidden items-center gap-1 md:flex">
             {TAB_IDS.map((tab) => {
@@ -148,15 +147,6 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
             <NotificationsDropdown onTabChange={onTabChange} />
           </div>
         </div>
-
-        {activeTab === "chat" && (
-          <div className="md:pb-1">
-            <p className="text-sm text-ink-muted">{t("header.greeting.hello")}</p>
-            <p className="text-2xl font-bold text-ink sm:text-3xl">
-              {t(`header.greeting.${greetingKey}`)}
-            </p>
-          </div>
-        )}
       </div>
     </header>
   );

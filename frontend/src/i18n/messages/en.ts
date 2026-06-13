@@ -68,8 +68,8 @@ export const en = {
     tabs: {
       chat: "Home",
       profile: "Profile",
-      forms: "Scan",
-      sources: "Cases",
+      forms: "Forms",
+      sources: "Legal data",
     },
     graphConnected: "connected",
     graphOffline: "offline",
@@ -98,7 +98,8 @@ export const en = {
     ],
     searching: "Searching knowledge graph...",
     matchingForms: "Matching forms",
-    citationsCount: "{count} source(s) — see panel on the right",
+    viewReferences: "View {count} reference(s)",
+    referencesShort: "References ({count})",
     placeholder: "Ask your legal question...",
     listening: "Listening...",
     uploadFile: "Upload file (PDF, image, text)",
@@ -114,6 +115,9 @@ export const en = {
     speechError: "Speech recognition error: {error}",
     apiError:
       "An error occurred. Please check:\n• Backend is running on port 8000\n• OPENAI_API_KEY is set in .env\n• FalkorDB is running (docker compose up -d)\n• Frontend port is allowed in CORS_ORIGINS\n\n{details}",
+    refreshSample: "Refresh sample",
+    refreshingSample: "Loading sample...",
+    refreshSampleFailed: "Could not load sample: {error}",
   },
   capture: {
     title: "Add document",
@@ -136,12 +140,14 @@ export const en = {
     loadingChats: "Loading chats...",
     noChats: "No saved chats yet",
     deleteChat: "Delete chat",
+    refreshChats: "Refresh chats",
     messages: "{count} msg.",
   },
   citations: {
-    title: "Sources & transparency",
-    subtitle: "Statutory text verbatim — verified via buzer.de",
-    empty: "Ask a question — used sources with legal references will appear here.",
+    title: "References & transparency",
+    subtitle: "Sources used for this answer — statutory text verified via buzer.de where available",
+    empty:
+      "Ask a question or tap a reference number in an answer — the sources used will appear here.",
     openOriginal: "Open original",
     sourceFallback: "Source {num}",
   },
@@ -190,8 +196,8 @@ export const en = {
     },
   },
   sources: {
-    title: "Legal sources & Graphiti",
-    subtitle: "Data is ingested into the knowledge graph as episodes with provenance",
+    title: "Legal databases & Graphiti",
+    subtitle: "Connected data sources indexed in the knowledge graph — not the references for a single chat answer",
     loadDemo: "Load demo data",
     seedFailed: "Seed failed",
     graphConnected: "Connected",
@@ -210,9 +216,12 @@ export const en = {
     mobile: {
       chats: "Chats",
       chat: "Chat",
-      sources: "Sources",
+      sources: "References",
       panelNav: "Chat sections",
       mainNav: "Main navigation",
     },
+  },
+  analysis: {
+    tab: "Document analysis",
   },
 } as const;

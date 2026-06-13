@@ -15,6 +15,11 @@ export interface UserProfile {
   preferred_language: string;
 }
 
+export interface SourceViewPayload {
+  citations: Citation[];
+  transparencyNote?: string;
+}
+
 export interface Citation {
   source: string;
   source_url: string;

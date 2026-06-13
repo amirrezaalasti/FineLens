@@ -64,7 +64,8 @@ Regeln:
 9. Prüfe bei Bußgeldbescheiden stets die Fristen (i.d.R. 14 Tage Einspruchsfrist nach § 67 OWiG) und mögliche Verjährung (§ 26 StVG).
 10. Weist der Sachverhalt auf einen Bußgeldbescheid hin, frage aktiv nach Aktenzeichen, Behörde und Zustelldatum (in der Antwortsprache).
 11. Generiere am Ende der Antwort exakt 2 bis 3 passende, kurze inhaltliche Nachfragen für den Nutzer in der Antwortsprache. Formatiere diese ZWINGEND unter der deutschen Überschrift "### Mögliche Anschlussfragen:" als Stichpunkte (-).
-12. Wurde ein Dokument (Bußgeldbescheid, Bescheid, Vertrag) hochgeladen: Erwähne am Ende kurz, dass passende Einspruchs-/Widerspruchsformulare im System bereitstehen (der Systemblock "### Passende Formulare" wird automatisch ergänzt — wiederhole die Liste nicht ausführlich)."""
+12. Wurde ein Dokument (Bußgeldbescheid, Bescheid, Vertrag) hochgeladen: Erwähne am Ende kurz, dass passende Einspruchs-/Widerspruchsformulare im System bereitstehen (der Systemblock "### Passende Formulare" wird automatisch ergänzt — wiederhole die Liste nicht ausführlich).
+13. Bei hochgeladenen Dokumenten: Alle Sachverhaltsangaben (Beträge, Daten, Behörde, Aktenzeichen, Zeiträume) ausschließlich aus dem Dokumenttext entnehmen. Erfinde keine Fakten. Fehlen Angaben, sage das ausdrücklich. Normen dienen der rechtlichen Einordnung — wende sie auf die Tatsachen aus dem Dokument an."""
 
 
 GUTACHTEN_SYSTEM_PROMPT = """Du bist FineLens, ein juristischer Assistent für deutsches Recht. Du erstellst rechtliche Prüfungen strikt im Gutachtenstil.
@@ -94,7 +95,8 @@ Allgemeine Vorgaben:
 - Zitiere Normen aus dem Kontext interaktiv: Nutze Markdown-Links z.B. [BGB § 433](URL_AUS_KONTEXT) oder aufklappbare Bereiche: <details><summary>[n] Titel (Referenz)</summary><a href="URL">URL</a><br>Auszugstext...</details>
 - Schließe mit einem >-Hinweis (in der Antwortsprache) ab, dass dies keine rechtsverbindliche Beratung ist.
 - Generiere GANZ AM ENDE der Antwort exakt 2 bis 3 passende, inhaltliche Nachfragen zum Fall in der Antwortsprache. Formatiere diese ZWINGEND unter der deutschen Überschrift "### Mögliche Anschlussfragen:" als Stichpunkte (-).
-- Bei hochgeladenen Dokumenten: Verweise kurz auf verfügbare Formulare (Einspruch, Akteneinsicht etc.) — der Block "### Passende Formulare" wird vom System ergänzt."""
+- Bei hochgeladenen Dokumenten: Verweise kurz auf verfügbare Formulare (Einspruch, Akteneinsicht etc.) — der Block "### Passende Formulare" wird vom System ergänzt.
+- Bei hochgeladenen Dokumenten: Sachverhaltsangaben nur aus dem Dokument; keine erfundenen Beträge oder Daten."""
 
 
 def build_user_prompt(
@@ -102,6 +104,8 @@ def build_user_prompt(
     user_context: str,
     message: str,
     style: AnswerStyle,
+    *,
+    has_uploaded_document: bool = False,
 ) -> str:
     if style == AnswerStyle.GUTACHTEN:
         format_hint = (
@@ -114,10 +118,20 @@ def build_user_prompt(
             "Quellenverweise [n] am Satzende, abschließender >-Hinweis)."
         )
 
+    document_grounding = ""
+    if has_uploaded_document or "--- DATEI:" in message:
+        document_grounding = """
+WICHTIG — Hochgeladenes Dokument:
+- Alle Sachverhaltsangaben (Beträge, Daten, Behörde, Aktenzeichen, Bewilligungszeitraum) NUR aus dem angehängten Dokument entnehmen.
+- Erfinde KEINE Beträge, Daten oder Fakten. Fehlen Angaben im Dokument, sage das ausdrücklich.
+- Normen aus dem Kontext dienen der rechtlichen Einordnung; wende sie auf die Tatsachen AUS DEM DOKUMENT an.
+- Zitiere Normen mit den konkreten URLs aus dem Kontext (gesetze-im-internet.de, buzer.de) — nicht nur die Portalseite.
+"""
+
     return f"""Rechtskontext (BM25-gewichtete Hybrid-Suche + Relevanzfilter):
 {context_block or '(Keine einschlägigen Normen im Kontext — weise ausdrücklich darauf hin; erfinde keine Normen.)'}
 {user_context}
-
+{document_grounding}
 Frage / Sachverhalt des Nutzers:
 {message}
 

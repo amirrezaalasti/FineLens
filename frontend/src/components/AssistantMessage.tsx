@@ -8,33 +8,99 @@ import type { Citation } from "@/lib/types";
 interface AssistantMessageProps {
   content: string;
   citations?: Citation[];
+  onCitationClick?: (num: number) => void;
+}
+
+function isPortalHomepage(url: string): boolean {
+  const normalized = url.replace(/\/$/, "");
+  return [
+    "https://www.gesetze-im-internet.de",
+    "https://www.recht.bund.de/de/home/home_node.html",
+    "https://beck-online.beck.de/Home",
+    "https://www.juris.de/jportal/nav/index.jsp",
+    "https://www.buzer.de",
+    "https://de.openlegaldata.io",
+  ].some((portal) => normalized === portal.replace(/\/$/, ""));
+}
+
+function resolveCitation(citations: Citation[] | undefined, num: number): Citation | undefined {
+  if (!citations?.length) return undefined;
+  return (
+    citations.find((c) => c.ref_number === num) ??
+    (num > 0 && num <= citations.length ? citations[num - 1] : undefined)
+  );
 }
 
 function CitationRef({
   num,
   citations,
+  onCitationClick,
 }: {
   num: number;
   citations?: Citation[];
+  onCitationClick?: (num: number) => void;
 }) {
   const { t } = useTranslation();
-  const citation = citations?.find((c) => c.ref_number === num);
+  const citation = resolveCitation(citations, num);
   const label =
     citation?.law_reference ||
     citation?.title ||
     t("citations.sourceFallback", { num });
 
+  const className =
+    "ml-0.5 inline-flex items-center rounded bg-pink/15 px-1 py-px text-[10px] font-bold text-pink transition";
+
+  const sourceUrl =
+    citation?.source_url && !isPortalHomepage(citation.source_url)
+      ? citation.source_url
+      : undefined;
+
+  if (onCitationClick) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          onCitationClick(num);
+          if (sourceUrl) {
+            window.open(sourceUrl, "_blank", "noopener,noreferrer");
+          }
+        }}
+        className={`${className} cursor-pointer hover:bg-pink/25 active:bg-pink/30`}
+        title={label}
+        aria-label={label}
+      >
+        {num}
+      </button>
+    );
+  }
+
+  if (sourceUrl) {
+    return (
+      <a
+        href={sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${className} cursor-pointer hover:bg-pink/25`}
+        title={label}
+        aria-label={label}
+      >
+        {num}
+      </a>
+    );
+  }
+
   return (
-    <sup
-      className="ml-0.5 inline-flex cursor-default items-center rounded bg-pink/15 px-1 py-px text-[10px] font-bold text-pink"
-      title={label}
-    >
+    <sup className={`${className} cursor-default`} title={label}>
       {num}
     </sup>
   );
 }
 
-export function AssistantMessage({ content, citations }: AssistantMessageProps) {
+export function AssistantMessage({
+  content,
+  citations,
+  onCitationClick,
+}: AssistantMessageProps) {
   const markdown = content.replace(/\[(\d+)\]/g, "[$1](cite:$1)");
 
   return (
@@ -69,7 +135,13 @@ export function AssistantMessage({ content, citations }: AssistantMessageProps) 
         a: ({ href, children }) => {
           if (href?.startsWith("cite:")) {
             const num = parseInt(href.slice(5), 10);
-            return <CitationRef num={num} citations={citations} />;
+            return (
+              <CitationRef
+                num={num}
+                citations={citations}
+                onCitationClick={onCitationClick}
+              />
+            );
           }
           return (
             <a

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import { Nunito } from "next/font/google";
 import { I18nProvider } from "@/i18n";
+import { LOCALE_COOKIE, parseLocale, type Locale } from "@/i18n/locale";
 import "./globals.css";
 
 const nunito = Nunito({
@@ -14,8 +16,8 @@ export const metadata: Metadata = {
   description:
     "KI-gestützter juristischer Assistent mit Graphiti Knowledge Graph, Quellennachweisen und intelligenten Formularen.",
   icons: {
-    icon: "/logo.jpeg",
-    apple: "/logo.jpeg",
+    icon: "/logo-icon.png",
+    apple: "/logo-icon.png",
   },
 };
 
@@ -27,14 +29,17 @@ export const viewport: Viewport = {
   themeColor: "#e97797",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const initialLocale: Locale = parseLocale(cookieStore.get(LOCALE_COOKIE)?.value);
+
   return (
     <html
-      lang="de"
+      lang={initialLocale}
       className={`${nunito.variable} h-full antialiased`}
       suppressHydrationWarning
     >
@@ -42,7 +47,7 @@ export default function RootLayout({
         className="flex h-full flex-col overflow-hidden"
         suppressHydrationWarning
       >
-        <I18nProvider>{children}</I18nProvider>
+        <I18nProvider initialLocale={initialLocale}>{children}</I18nProvider>
       </body>
     </html>
   );

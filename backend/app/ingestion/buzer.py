@@ -20,6 +20,8 @@ _BUZER_LAW_SLUGS: dict[str, str] = {
     "BGB": "BGB",
     "HGB": "HGB",
     "DSGVO": "DSGVO",
+    "BAFOG": "BAföG",
+    "SGBX": "SGB_X",
 }
 
 

@@ -16,9 +16,10 @@ import {
   deleteChatSession,
   getHealth,
   listChatSessions,
+  seedBafogDemo,
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
-import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField } from "@/lib/types";
+import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField, SourceViewPayload } from "@/lib/types";
 
 type Tab = "chat" | "profile" | "forms" | "sources";
 
@@ -74,6 +75,15 @@ export default function Home() {
     loadStoredJson<Attachment[]>(DRAFT_ATTACHMENTS_KEY) ?? []
   );
   const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
+  const [chatInputFocused, setChatInputFocused] = useState(false);
+
+  const handleTabChange = useCallback((newTab: Tab) => {
+    setTab(newTab);
+    if (newTab === "chat") {
+      setMobileChatPanel("chat");
+    }
+    setChatInputFocused(false);
+  }, []);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -133,19 +143,24 @@ export default function Home() {
         const storedId = loadStoredJson<string>(SESSION_STORAGE_KEY);
         if (storedId && list.some((s) => s.id === storedId)) {
           setActiveSessionId(storedId);
-        } else {
+        } else if (list.length > 0) {
           if (storedId) {
             sessionStorage.removeItem(SESSION_STORAGE_KEY);
           }
-          const emptySession = list.find((s) => s.message_count === 0);
-          if (emptySession) {
-            setActiveSessionId(emptySession.id);
-          } else {
-            const session = await createChatSession(USER_ID);
-            if (!cancelled) {
-              setActiveSessionId(session.id);
-              await refreshSessions();
+          const preferred = list.find((s) => s.message_count > 0) ?? list[0];
+          setActiveSessionId(preferred.id);
+          storeJson(SESSION_STORAGE_KEY, preferred.id);
+        } else {
+          const session = await createChatSession(USER_ID);
+          if (!cancelled) {
+            setActiveSessionId(session.id);
+            storeJson(SESSION_STORAGE_KEY, session.id);
+            try {
+              await seedBafogDemo(session.id, USER_ID);
+            } catch (err) {
+              console.error("Failed to seed BAföG demo:", err);
             }
+            await refreshSessions();
           }
         }
       } catch {
@@ -226,14 +241,27 @@ export default function Home() {
     setMobileChatPanel("sources");
   }, []);
 
+  const handleOpenSources = useCallback((payload?: SourceViewPayload) => {
+    if (payload) {
+      setCitations(payload.citations);
+      setTransparencyNote(payload.transparencyNote || "");
+    }
+    setActiveRightTab("citations");
+    setMobileChatPanel("sources");
+  }, []);
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white">
-      <Header activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
+      <Header activeTab={tab} onTabChange={handleTabChange} graphConnected={graphConnected} />
 
       <main
         className={`mx-auto w-full min-h-0 flex-1 px-3 sm:px-6 ${
           tab === "chat"
-            ? "max-w-[1800px] overflow-hidden py-2 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:py-3 md:pb-3"
+            ? `max-w-[1800px] overflow-hidden py-2 sm:py-3 md:pb-3 ${
+                chatInputFocused
+                  ? "pb-2"
+                  : "pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"
+              }`
             : "max-w-7xl overflow-y-auto py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:py-6 md:pb-6"
         }`}
       >
@@ -250,6 +278,7 @@ export default function Home() {
                 onSelect={handleSelectSession}
                 onNewChat={handleNewChat}
                 onDelete={handleDeleteSession}
+                onRefresh={refreshSessions}
                 loading={sessionsLoading}
               />
             }
@@ -261,10 +290,14 @@ export default function Home() {
                 onSessionIdChange={handleSessionIdChange}
                 onResponse={handleResponse}
                 onFormSuggest={handleFormSuggest}
-                onOpenFormsTab={() => setTab("forms")}
+                onOpenFormsTab={() => handleTabChange("forms")}
                 onAttachmentSelect={handleAttachmentSelect}
                 onDemoLoaded={handleDemoLoaded}
-                onOpenSources={() => setMobileChatPanel("sources")}
+                onSampleRefreshed={refreshSessions}
+                onOpenSources={handleOpenSources}
+                onOpenChatsList={() => setMobileChatPanel("sidebar")}
+                onInputFocusChange={setChatInputFocused}
+                chatActive={tab === "chat"}
                 sourcesCount={citations.length}
                 attachments={draftAttachments}
                 setAttachments={setDraftAttachments}
@@ -281,7 +314,7 @@ export default function Home() {
                         : "text-ink/60 hover:text-ink hover:bg-ink/5"
                     }`}
                   >
-                    Quellen & Transparenz
+                    {t("citations.title")}
                   </button>
                   <button
                     onClick={() => setActiveRightTab("analysis")}
@@ -291,7 +324,7 @@ export default function Home() {
                         : "text-ink/60 hover:text-ink hover:bg-ink/5"
                     }`}
                   >
-                    Dokumenten-Analyse
+                    {t("analysis.tab")}
                   </button>
                 </div>
                 <div className="flex-1 min-h-0">
@@ -319,7 +352,7 @@ export default function Home() {
         {tab === "profile" && (
           <ProfileWizard
             userId={USER_ID}
-            onComplete={() => setTab("chat")}
+            onComplete={() => handleTabChange("chat")}
           />
         )}
 
@@ -330,7 +363,12 @@ export default function Home() {
         {tab === "sources" && <SourcesPanel />}
       </main>
 
-      <MobileBottomNav activeTab={tab} onTabChange={setTab} graphConnected={graphConnected} />
+      <MobileBottomNav
+        activeTab={tab}
+        onTabChange={handleTabChange}
+        graphConnected={graphConnected}
+        hideBottomNav={tab === "chat" && chatInputFocused}
+      />
 
       <footer className="hidden shrink-0 border-t border-ink/10 bg-ink/5 py-2 text-center text-xs text-slate-500 md:block">
         FineLens · {t("footer.disclaimer")} · {t("footer.dataSources")} · {t("footer.engine")}{" "}

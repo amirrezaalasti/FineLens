@@ -1,6 +1,7 @@
 "use client";
 
-import { MessageSquarePlus, MessagesSquare, Trash2 } from "lucide-react";
+import { Loader2, MessageSquarePlus, MessagesSquare, RefreshCw, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "@/i18n";
 import type { ChatSessionSummary } from "@/lib/types";
 
@@ -10,6 +11,7 @@ interface ChatSidebarProps {
   onSelect: (sessionId: string) => void;
   onNewChat: () => void;
   onDelete: (sessionId: string) => void;
+  onRefresh?: () => Promise<unknown>;
   loading?: boolean;
 }
 
@@ -19,9 +21,11 @@ export function ChatSidebar({
   onSelect,
   onNewChat,
   onDelete,
+  onRefresh,
   loading,
 }: ChatSidebarProps) {
   const { t, dateLocale } = useTranslation();
+  const [refreshing, setRefreshing] = useState(false);
 
   const formatDate = (iso: string) => {
     const date = new Date(iso);
@@ -33,17 +37,45 @@ export function ChatSidebar({
     return date.toLocaleDateString(dateLocale, { day: "2-digit", month: "2-digit" });
   };
 
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing || loading) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">
       <div className="border-b border-ink/10 p-3">
-        <button
-          type="button"
-          onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink px-3 py-2.5 text-sm font-bold text-white transition hover:bg-pink-dark"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-          {t("sidebar.newChat")}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-pink px-3 py-2.5 text-sm font-bold text-white transition hover:bg-pink-dark"
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+            {t("sidebar.newChat")}
+          </button>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ink/10 bg-white text-ink transition hover:bg-ink/5 disabled:opacity-50"
+              title={t("sidebar.refreshChats")}
+              aria-label={t("sidebar.refreshChats")}
+            >
+              {refreshing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">

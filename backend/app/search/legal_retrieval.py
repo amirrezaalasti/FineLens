@@ -21,6 +21,7 @@ from app.search.legal_search_config import (
 from app.search.query_rewriter import rewrite_query
 from app.search.relevance_scorer import rescore_hits, retrieval_quality
 from app.ingestion.buzer import buzer_law_slug
+from app.ingestion.statute_fetch import build_statute_url
 from app.ingestion.statute_fetch import extract_norm_references
 from app.search.runtime_law_fetch import fetch_predicted_norms, fetch_runtime_norms
 
@@ -75,7 +76,13 @@ def _edge_to_hit(edge: EntityEdge, score: float) -> dict[str, Any]:
         if body_start != -1:
             fact = fact[body_start + 3 :]
 
-    # Fix broken URLs if reference is known (e.g. § 17 OWiG -> https://www.buzer.de/17_OWiG.htm)
+    # Build a direct paragraph URL when the graph hit lacks one.
+    if not source_url and reference:
+        match = re.search(r"§\s*(\d+[a-z]?)\s*([a-zA-Z]+)", reference)
+        if match:
+            para = match.group(1)
+            law_code = match.group(2).upper()
+            source_url = build_statute_url(para, law_code) or ""
     if not source_url and "buzer.de" in source_name.lower():
         if not reference:
             # Try to extract the norm from the fact itself
@@ -149,7 +156,7 @@ def _predicted_norms_cover_candidates(
     for norm in norm_candidates[:5]:
         norm_key = norm.lower().replace(" ", "").replace("abs.", "").replace("sat.", "")
         para_match = re.search(r"§?(\d+[a-z]?)", norm_key)
-        code_match = re.search(r"(owig|stvg|stvo|bgb|stgb|dsgvo)", norm_key)
+        code_match = re.search(r"(owig|stvg|stvo|bgb|stgb|dsgvo|bafoeg|sgbx|sgb)", norm_key)
         if not para_match or not code_match:
             continue
         para, code = para_match.group(1), code_match.group(1)

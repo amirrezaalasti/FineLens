@@ -11,15 +11,21 @@ import {
 } from "react";
 import { de } from "./messages/de";
 import { en } from "./messages/en";
+import { LOCALE_COOKIE, type Locale } from "./locale";
 
-export type Locale = "de" | "en";
+export type { Locale } from "./locale";
+export { LOCALES, LOCALE_COOKIE, parseLocale } from "./locale";
 
-export const LOCALES: Locale[] = ["de", "en"];
 const STORAGE_KEY = "finelens-locale";
 
 const messages = { de, en } as const;
 
 type MessageTree = typeof de;
+
+function persistLocale(locale: Locale) {
+  localStorage.setItem(STORAGE_KEY, locale);
+  document.cookie = `${LOCALE_COOKIE}=${locale};path=/;max-age=31536000;SameSite=Lax`;
+}
 
 function getNested(obj: Record<string, unknown>, path: string): unknown {
   let cur: unknown = obj;
@@ -51,15 +57,31 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("de");
+interface I18nProviderProps {
+  children: ReactNode;
+  initialLocale?: Locale;
+}
+
+export function I18nProvider({ children, initialLocale = "de" }: I18nProviderProps) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
+
+  useEffect(() => {
+    setLocaleState(initialLocale);
+  }, [initialLocale]);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "de" || stored === "en") {
-      setLocaleState(stored);
+      if (stored !== initialLocale) {
+        setLocaleState(stored);
+        document.cookie = `${LOCALE_COOKIE}=${stored};path=/;max-age=31536000;SameSite=Lax`;
+      } else {
+        localStorage.setItem(STORAGE_KEY, initialLocale);
+      }
+      return;
     }
-  }, []);
+    localStorage.setItem(STORAGE_KEY, initialLocale);
+  }, [initialLocale]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -67,7 +89,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
-    localStorage.setItem(STORAGE_KEY, next);
+    persistLocale(next);
   }, []);
 
   const t = useCallback(

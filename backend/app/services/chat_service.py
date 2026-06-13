@@ -10,7 +10,6 @@ from app.models.schemas import (
     ChatResponse,
     Citation,
     LegalSource,
-    SOURCE_URLS,
     StoredChatMessage,
 )
 from app.search.query_rewriter import rewrite_query
@@ -19,7 +18,7 @@ from app.services.form_templates import (
     format_forms_section,
     suggest_forms_for_context,
 )
-from app.services.law_text import enrich_citations
+from app.services.law_text import enrich_citations, ensure_citation_url
 from app.services.query_router import (
     GUTACHTEN_SYSTEM_PROMPT,
     SIMPLE_SYSTEM_PROMPT,
@@ -62,32 +61,35 @@ _DEFAULT_FINE_NORMS = [
 ]
 
 _BAFOEG_DOC_HINTS = re.compile(
-    r"\b(bafög|bafoeg|ausbildungsförderung|rückbescheid|darlehenskasse|bva|bundesverwaltungsamt)\b",
+    r"\b(bafög|bafoeg|baföeg|ausbildungsförderung|ausbildungsfoerderung|"
+    r"rückbescheid|rueckbescheid|darlehenskasse|bva|bundesverwaltungsamt)\b",
     re.I,
 )
 
 _DEFAULT_BAFOEG_NORMS = [
     "§ 20 BAföG",
-    "§ 50 BAföG",
     "§ 45 SGB X",
+    "§ 50 SGB X",
 ]
 
 
 def _infer_norms_from_attachments(
     message: str, attachments: list[Attachment]
 ) -> list[str]:
-    """When document text is missing, infer likely norms from filename and message."""
+    """Infer likely norms from document type markers in message, filename, or content."""
     blob = message.lower()
     for att in attachments:
-        blob += f" {att.name.lower()} {(att.content or '')[:500].lower()}"
+        blob += f" {att.name.lower()} {(att.content or '')[:2000].lower()}"
+
+    if _BAFOEG_DOC_HINTS.search(blob):
+        return list(_DEFAULT_BAFOEG_NORMS)
+    if _FINE_DOC_HINTS.search(blob):
+        return list(_DEFAULT_FINE_NORMS)
 
     if _EMPTY_DOC_RE.search(blob) or (
         attachments and all(len(a.content or "") < 80 for a in attachments)
     ):
-        if _FINE_DOC_HINTS.search(blob):
-            return list(_DEFAULT_FINE_NORMS)
-        if _BAFOEG_DOC_HINTS.search(blob):
-            return list(_DEFAULT_BAFOEG_NORMS)
+        return []
     return []
 
 
@@ -143,6 +145,70 @@ def _map_source(name: str) -> LegalSource:
     return LegalSource.OPEN_LEGAL_DATA
 
 
+def _collect_attachments(
+    request: ChatRequest,
+) -> list[Attachment]:
+    attachments = list(request.attachments)
+    for msg in request.history:
+        attachments.extend(msg.attachments or [])
+    return attachments
+
+
+def _resolve_citation(citations: list[Citation], index: int) -> Citation | None:
+    if index <= 0:
+        return None
+    for citation in citations:
+        if citation.ref_number == index:
+            return citation
+    if index <= len(citations):
+        return citations[index - 1]
+    return None
+
+
+def _filter_cited_citations(answer: str, citations: list[Citation]) -> tuple[str, list[Citation]]:
+    """Keep only citations referenced in the answer and renumber them sequentially."""
+    cited_indices = sorted(_extract_cited_indices(answer))
+    if not cited_indices:
+        return answer, citations
+
+    selected: list[Citation] = []
+    seen_ids: set[str] = set()
+    for index in cited_indices:
+        citation = _resolve_citation(citations, index)
+        if not citation:
+            continue
+        key = citation.law_reference or citation.title or str(citation.ref_number)
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        selected.append(citation)
+
+    if not selected:
+        return answer, [ensure_citation_url(c) for c in citations]
+
+    old_to_new = {citation.ref_number: i + 1 for i, citation in enumerate(selected)}
+    new_citations = [
+        ensure_citation_url(citation.model_copy(update={"ref_number": i + 1}))
+        for i, citation in enumerate(selected)
+    ]
+
+    remapped = answer
+    for old_index in sorted(old_to_new, reverse=True):
+        new_index = old_to_new[old_index]
+        if old_index != new_index:
+            remapped = remapped.replace(f"[{old_index}]", f"[{new_index}]")
+
+    valid_count = len(new_citations)
+
+    def _keep_valid_marker(match: re.Match[str]) -> str:
+        num = int(match.group(1))
+        return match.group(0) if 1 <= num <= valid_count else ""
+
+    remapped = re.sub(r"\[(\d+)\]", _keep_valid_marker, remapped)
+
+    return remapped, new_citations
+
+
 async def generate_answer(
     request: ChatRequest, *, persist: bool = True
 ) -> ChatResponse:
@@ -153,9 +219,10 @@ async def generate_answer(
         else None
     )
     answer_style = classify_query(request.message, profile)
+    all_attachments = _collect_attachments(request)
 
-    search_query = _build_search_query(request.message, request.attachments)
-    inferred_norms = _infer_norms_from_attachments(request.message, request.attachments)
+    search_query = _build_search_query(request.message, all_attachments)
+    inferred_norms = _infer_norms_from_attachments(request.message, all_attachments)
     if inferred_norms:
         search_query += (
             "\n\nRelevante Normen (aus Dokumenttyp abgeleitet): "
@@ -183,7 +250,7 @@ async def generate_answer(
     for i, hit in enumerate(context_hits, 1):
         fact = hit.get("fact", "")
         source = _map_source(hit.get("source", ""))
-        source_url = hit.get("source_url") or SOURCE_URLS.get(source, "")
+        source_url = hit.get("source_url", "")
         title = hit.get("title", f"Quelle {i}")
         reference = hit.get("law_reference", "")
 
@@ -252,7 +319,11 @@ async def generate_answer(
         current_message_content = f"{current_message_content}\n{attachment_text}"
 
     prompt = build_user_prompt(
-        context_block, user_context, current_message_content, answer_style
+        context_block,
+        user_context,
+        current_message_content,
+        answer_style,
+        has_uploaded_document=bool(all_attachments),
     )
     messages.append({"role": "user", "content": prompt})
 
@@ -263,9 +334,10 @@ async def generate_answer(
     )
     answer = completion.choices[0].message.content or ""
 
+    answer, citations = _filter_cited_citations(answer, citations)
+
     cited_indices = _extract_cited_indices(answer)
-    if cited_indices:
-        citations = [c for c in citations if c.ref_number in cited_indices]
+    cited_count = len(cited_indices) if cited_indices else len(citations)
 
     suggested_forms = suggest_forms_for_context(
         request.message,
@@ -273,6 +345,7 @@ async def generate_answer(
         attachments=request.attachments,
         max_forms=3,
         language=_resolve_language(request, profile),
+        history=request.history,
     )
     if not suggested_forms and profile.legal_topic:
         suggested_forms = suggest_forms_for_context(
@@ -281,6 +354,7 @@ async def generate_answer(
             attachments=request.attachments,
             max_forms=2,
             language=_resolve_language(request, profile),
+            history=request.history,
         )
 
     follow_ups: list[str] = []
@@ -294,7 +368,7 @@ async def generate_answer(
             if clean_line:
                 follow_ups.append(clean_line)
 
-    if suggested_forms and request.attachments:
+    if suggested_forms and all_attachments:
         lang = _resolve_language(request, profile)
         forms_section = format_forms_section(suggested_forms, language=lang)
         if forms_section and forms_section not in answer:
@@ -319,7 +393,7 @@ async def generate_answer(
                 "Wie lange hat das Unternehmen Zeit zu antworten?",
                 "Was tun bei fehlender Antwort?",
             ]
-        elif request.attachments and suggested_forms:
+        elif all_attachments and suggested_forms:
             follow_ups = [
                 "Welche Frist gilt für den Einspruch?",
                 "Soll ich Akteneinsicht beantragen?",
@@ -332,9 +406,9 @@ async def generate_answer(
         else "Standardantwort"
     )
     transparency = (
-        f"Diese Antwort ({style_label}) basiert auf {len(citations)} Quelle(n) "
-        f"aus der Graphiti-Wissensdatenbank (BM25-gewichtete Hybrid-Suche, BFS-Tiefe "
-        f"{settings.legal_search_bfs_depth}). "
+        f"Diese Antwort ({style_label}) zitiert {cited_count} Quelle(n) "
+        f"({len(citations)} Treffer in der Graphiti-Wissensdatenbank, "
+        f"BM25-gewichtete Hybrid-Suche, BFS-Tiefe {settings.legal_search_bfs_depth}). "
         "Dies ist keine Rechtsberatung."
     )
 

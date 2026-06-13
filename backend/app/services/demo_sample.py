@@ -18,21 +18,32 @@ from app.models.schemas import (
 )
 from app.routers.chat import extract_file_content
 from app.services.chat_service import generate_answer
-from app.services.chat_store import append_messages, get_session
+from app.services.chat_store import (
+    append_messages,
+    create_session,
+    get_session,
+    list_sessions,
+    replace_session_messages,
+)
 
 SAMPLE_PDF = Path(__file__).resolve().parents[2] / "samples" / "BAfoeg_Rueckbescheid_Beispiel.pdf"
 CACHE_FILE = settings.data_dir_path / "bafog_demo_cache.json"
+CACHE_VERSION = "4"
 DEMO_QUERY = (
     "Ich habe diesen BAföG-Rückbescheid erhalten. "
     "Was bedeutet das für mich und welche Optionen habe ich?"
 )
+DEMO_TITLE = "BAföG Beispiel"
 
 
 def _load_cache() -> dict | None:
     if not CACHE_FILE.exists():
         return None
     try:
-        return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        if data.get("cache_version") != CACHE_VERSION:
+            return None
+        return data
     except json.JSONDecodeError:
         return None
 
@@ -71,6 +82,7 @@ async def _build_demo_cache() -> dict:
     )
 
     data = {
+        "cache_version": CACHE_VERSION,
         "query": DEMO_QUERY,
         "attachment": attachment.model_dump(mode="json"),
         "answer": chat_response.answer,
@@ -90,13 +102,7 @@ async def get_bafog_demo_data() -> dict:
     return await _build_demo_cache()
 
 
-async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession | None:
-    session = await get_session(session_id)
-    if not session or session.user_id != user_id:
-        return None
-    if session.messages:
-        return session
-
+async def _build_demo_messages() -> tuple[StoredChatMessage, StoredChatMessage]:
     demo = await get_bafog_demo_data()
     attachment = Attachment(**demo["attachment"])
 
@@ -105,8 +111,7 @@ async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession 
     citations = [Citation(**c) for c in demo.get("citations", [])]
     suggested_forms = [LegalForm(**f) for f in demo.get("suggested_forms", [])]
 
-    await append_messages(
-        session_id,
+    return (
         StoredChatMessage(
             role="user",
             content=demo["query"],
@@ -120,4 +125,82 @@ async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession 
             suggested_forms=suggested_forms,
         ),
     )
-    return await get_session(session_id)
+
+
+def _is_bafog_demo_session(session: ChatSession) -> bool:
+    if not session.messages:
+        return False
+    for message in session.messages:
+        if message.role != "user":
+            continue
+        content = (message.content or "").strip()
+        if content == DEMO_QUERY:
+            return True
+        if message.attachments and any(
+            "bafög" in att.name.lower() or "bafoeg" in att.name.lower()
+            for att in message.attachments
+        ):
+            return True
+    return False
+
+
+async def find_bafog_demo_session(user_id: str) -> ChatSession | None:
+    for summary in await list_sessions(user_id):
+        session = await get_session(summary.id)
+        if session and _is_bafog_demo_session(session):
+            return session
+    return None
+
+
+async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession | None:
+    existing = await find_bafog_demo_session(user_id)
+    if existing:
+        return existing
+
+    session = await get_session(session_id)
+    if not session or session.user_id != user_id:
+        return None
+    if session.messages:
+        return session
+
+    user_message, assistant_message = await _build_demo_messages()
+    await append_messages(session_id, user_message, assistant_message)
+    updated = await get_session(session_id)
+    if updated and updated.title == "Neuer Chat":
+        return await replace_session_messages(
+            session_id,
+            updated.messages,
+            title=DEMO_TITLE,
+        )
+    return updated
+
+
+async def refresh_bafog_demo_session(user_id: str) -> ChatSession:
+    existing = await find_bafog_demo_session(user_id)
+    if existing:
+        session_id = existing.id
+    else:
+        session = await create_session(user_id)
+        session_id = session.id
+
+    user_message, assistant_message = await _build_demo_messages()
+    refreshed = await replace_session_messages(
+        session_id,
+        [user_message, assistant_message],
+        title=DEMO_TITLE,
+    )
+    if not refreshed:
+        raise RuntimeError("Failed to refresh BAföG demo session")
+    return refreshed
+
+
+async def get_or_create_bafog_demo_session(user_id: str) -> ChatSession:
+    existing = await find_bafog_demo_session(user_id)
+    if existing:
+        return existing
+
+    session = await create_session(user_id)
+    seeded = await seed_bafog_demo_session(session.id, user_id)
+    if not seeded:
+        raise RuntimeError("Failed to create BAföG demo session")
+    return seeded

@@ -245,6 +245,31 @@ async def append_messages(
     return session
 
 
+async def replace_session_messages(
+    session_id: str,
+    messages: list[StoredChatMessage],
+    *,
+    title: str | None = None,
+) -> ChatSession | None:
+    session = await get_session(session_id)
+    if not session:
+        return None
+
+    session.messages = messages
+    session.updated_at = datetime.utcnow()
+    if title is not None:
+        session.title = title
+
+    if use_neo4j_chat_store():
+        await _neo4j_save_session(session)
+        return session
+
+    sessions = _load_all()
+    sessions[session_id] = _session_to_dict(session)
+    _save_all(sessions)
+    return session
+
+
 async def delete_session(session_id: str) -> bool:
     if use_neo4j_chat_store():
         existing = await get_session(session_id)

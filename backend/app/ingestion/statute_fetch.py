@@ -27,16 +27,39 @@ _GESETZE_SLUGS: dict[str, str] = {
     "GG": "gg",
     "AO": "ao",
     "DSGVO": "dsgvo",
+    "BAFOG": "baf_g",
+    "SGBX": "sgb_10",
+}
+
+# Canonical display labels for normalized law codes.
+_LAW_DISPLAY_NAMES: dict[str, str] = {
+    "BAFOG": "BAföG",
+    "SGBX": "SGB X",
 }
 
 _NORM_REF_RE = re.compile(
-    r"§\s*(\d+[a-z]?)\s*(?:Abs\.?\s*\d+)?\s*(?:S\.?\s*\d+)?\s*([A-ZÄÖÜ]{2,10})",
+    r"§\s*(\d+[a-z]?)\s*(?:Abs\.?\s*\d+)?\s*(?:S\.?\s*\d+)?\s*"
+    r"(SGB\s*X|SGB\s*10|BA[fF][öoO]?[gG]|[A-ZÄÖÜ]{2,10})",
     re.I,
 )
 
 
 def normalize_law_code(law_code: str) -> str:
-    return law_code.strip().upper().replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
+    raw = law_code.strip()
+    upper = raw.upper().replace("Ö", "O").replace("Ü", "U").replace("Ä", "A")
+    compact = re.sub(r"\s+", "", upper)
+    aliases = {
+        "BAFOG": "BAFOG",
+        "BAFOEG": "BAFOG",
+        "SGBX": "SGBX",
+        "SGB10": "SGBX",
+    }
+    return aliases.get(compact, upper)
+
+
+def format_law_display_name(law_code: str) -> str:
+    normalized = normalize_law_code(law_code)
+    return _LAW_DISPLAY_NAMES.get(normalized, normalized)
 
 
 def extract_norm_references(text: str, limit: int = 8) -> list[str]:
@@ -46,7 +69,8 @@ def extract_norm_references(text: str, limit: int = 8) -> list[str]:
     seen: set[str] = set()
     refs: list[str] = []
     for match in _NORM_REF_RE.finditer(text):
-        para, code = match.group(1), normalize_law_code(match.group(2))
+        para = match.group(1)
+        code = format_law_display_name(match.group(2))
         ref = f"§ {para} {code}"
         key = ref.lower()
         if key not in seen:
@@ -104,16 +128,29 @@ async def fetch_gesetze_paragraph(paragraph: str, law_code: str) -> tuple[str, s
         resp.raise_for_status()
         html = resp.text
 
-    reference = f"§ {paragraph} {code}"
+    display_code = format_law_display_name(code)
+    reference = f"§ {paragraph} {display_code}"
     title = _extract_gesetze_title(html, reference)
     content = _extract_gesetze_paragraph_text(html)
     return title, content, url
 
 
+def build_statute_url(paragraph: str, law_code: str) -> str | None:
+    """Build a direct paragraph URL on gesetze-im-internet.de or buzer.de."""
+    from app.ingestion.buzer import BASE_URL as BUZER_BASE, buzer_law_slug
+
+    code = normalize_law_code(law_code)
+    slug = _GESETZE_SLUGS.get(code)
+    if slug:
+        return f"{GESETZE_BASE}/{slug}/__{paragraph}.html"
+    return f"{BUZER_BASE}/{paragraph}_{buzer_law_slug(code)}.htm"
+
+
 async def fetch_statute_paragraph(paragraph: str, law_code: str) -> tuple[str, str, str, str]:
     """Return (title, content, url, source_name). Prefers gesetze-im-internet for full text."""
     code = normalize_law_code(law_code)
-    reference = f"§ {paragraph} {code}"
+    display_code = format_law_display_name(law_code)
+    reference = f"§ {paragraph} {display_code}"
 
     if code in _GESETZE_SLUGS:
         try:

@@ -68,8 +68,8 @@ export const de = {
     tabs: {
       chat: "Start",
       profile: "Profil",
-      forms: "Scannen",
-      sources: "Vorgänge",
+      forms: "Formulare",
+      sources: "Rechtsdaten",
     },
     graphConnected: "verbunden",
     graphOffline: "offline",
@@ -98,7 +98,8 @@ export const de = {
     ],
     searching: "Durchsuche Wissensgraph...",
     matchingForms: "Passende Formulare",
-    citationsCount: "{count} Quelle(n) — siehe Panel rechts",
+    viewReferences: "{count} Nachweise anzeigen",
+    referencesShort: "Nachweise ({count})",
     placeholder: "Ihre Rechtsfrage stellen...",
     listening: "Zuhören...",
     uploadFile: "Datei hochladen (PDF, Bild, Text)",
@@ -114,6 +115,9 @@ export const de = {
     speechError: "Fehler bei der Spracherkennung: {error}",
     apiError:
       "Es ist ein Fehler aufgetreten. Bitte prüfen Sie:\n• Backend läuft auf Port 8000\n• OPENAI_API_KEY ist in .env gesetzt\n• FalkorDB läuft (docker compose up -d)\n• Frontend-Port ist in CORS_ORIGINS erlaubt\n\n{details}",
+    refreshSample: "Beispiel aktualisieren",
+    refreshingSample: "Beispiel wird geladen...",
+    refreshSampleFailed: "Beispiel konnte nicht geladen werden: {error}",
   },
   capture: {
     title: "Dokument hinzufügen",
@@ -136,13 +140,14 @@ export const de = {
     loadingChats: "Lade Chats...",
     noChats: "Noch keine gespeicherten Chats",
     deleteChat: "Chat löschen",
+    refreshChats: "Chats aktualisieren",
     messages: "{count} Nachr.",
   },
   citations: {
-    title: "Quellen & Transparenz",
-    subtitle: "Gesetzestexte im Wortlaut — verifiziert über buzer.de",
+    title: "Nachweise & Transparenz",
+    subtitle: "Für diese Antwort verwendete Quellen — Gesetzestexte wo möglich über buzer.de verifiziert",
     empty:
-      "Stellen Sie eine Frage — hier erscheinen die verwendeten Quellen mit Gesetzesverweisen.",
+      "Stellen Sie eine Frage oder tippen Sie auf eine Quellennummer in der Antwort — die verwendeten Nachweise erscheinen hier.",
     openOriginal: "Original öffnen",
     sourceFallback: "Quelle {num}",
   },
@@ -191,8 +196,8 @@ export const de = {
     },
   },
   sources: {
-    title: "Rechtsquellen & Graphiti",
-    subtitle: "Daten werden als Episoden mit Provenienz in den Knowledge Graph eingespielt",
+    title: "Rechtsdatenbanken & Graphiti",
+    subtitle: "Angebundene Datenquellen im Knowledge Graph — nicht die Nachweise einer einzelnen Chat-Antwort",
     loadDemo: "Demo-Daten laden",
     seedFailed: "Seed fehlgeschlagen",
     graphConnected: "Verbunden",
@@ -211,9 +216,12 @@ export const de = {
     mobile: {
       chats: "Chats",
       chat: "Chat",
-      sources: "Quellen",
+      sources: "Nachweise",
       panelNav: "Chat-Bereiche",
       mainNav: "Hauptnavigation",
     },
+  },
+  analysis: {
+    tab: "Dokumenten-Analyse",
   },
 } as const;

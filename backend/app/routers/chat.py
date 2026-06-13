@@ -356,6 +356,18 @@ async def seed_bafog_demo(session_id: str, user_id: str = "default") -> ChatSess
     return session
 
 
+@router.post("/demo/bafog/refresh", response_model=ChatSession)
+async def refresh_bafog_demo(user_id: str = "default") -> ChatSession:
+    from app.services.demo_sample import refresh_bafog_demo_session
+
+    try:
+        return await refresh_bafog_demo_session(user_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Beispiel konnte nicht aktualisiert werden: {e}"
+        ) from e
+
+
 @router.delete("/sessions/{session_id}")
 async def remove_chat_session(session_id: str, user_id: str = "default") -> dict:
     session = await get_session(session_id)

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
-import { createChatSession, getChatSession, sendChat, seedBafogDemo, uploadFile } from "@/lib/api";
+import { Loader2, MessageSquare, MessagesSquare, RefreshCw, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
+import { createChatSession, getChatSession, refreshBafogDemo, sendChat, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
-import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
+import type { ChatMessage, LegalForm, Attachment, SourceViewPayload } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
 import {
   DocumentCaptureInputs,
@@ -22,8 +22,12 @@ interface ChatPanelProps {
   onFormSuggest: (forms: LegalForm[]) => void;
   onOpenFormsTab?: () => void;
   onAttachmentSelect?: (attachment: Attachment) => void;
-  onOpenSources?: () => void;
+  onOpenSources?: (payload?: SourceViewPayload) => void;
+  onOpenChatsList?: () => void;
   onDemoLoaded?: (attachment: Attachment, assistantMsg: ChatMessage) => void;
+  onSampleRefreshed?: () => void;
+  onInputFocusChange?: (focused: boolean) => void;
+  chatActive?: boolean;
   sourcesCount?: number;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
@@ -41,7 +45,11 @@ export function ChatPanel({
   onOpenFormsTab,
   onAttachmentSelect,
   onOpenSources,
+  onOpenChatsList,
   onDemoLoaded,
+  onSampleRefreshed,
+  onInputFocusChange,
+  chatActive = true,
   sourcesCount = 0,
   attachments,
   setAttachments,
@@ -52,6 +60,7 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [refreshingSample, setRefreshingSample] = useState(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const onResponseRef = useRef(onResponse);
   onResponseRef.current = onResponse;
@@ -64,6 +73,20 @@ export function ChatPanel({
   const lastToggleRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [inputEditable, setInputEditable] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    if (!mq.matches) setInputEditable(true);
+  }, []);
+
+  useEffect(() => {
+    if (chatActive) return;
+    inputRef.current?.blur();
+    onInputFocusChange?.(false);
+  }, [chatActive, onInputFocusChange]);
 
   const processFiles = useCallback(
     async (files: FileList) => {
@@ -95,7 +118,7 @@ export function ChatPanel({
     [onAttachmentSelect, setAttachments, t]
   );
 
-  const uploadDisabled = loading || loadingSession || uploading;
+  const uploadDisabled = loading || loadingSession || uploading || refreshingSample;
 
   const capture = useDocumentCapture({
     onFilesSelected: processFiles,
@@ -127,6 +150,17 @@ export function ChatPanel({
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
+
+  const openMessageSources = useCallback(
+    (msg: ChatMessage) => {
+      if (!msg.citations?.length) return;
+      onOpenSources?.({
+        citations: msg.citations,
+        transparencyNote: msg.transparency_note,
+      });
+    },
+    [onOpenSources]
+  );
 
   // Check SpeechRecognition support on mount
   useEffect(() => {
@@ -276,6 +310,26 @@ export function ChatPanel({
   const onDemoLoadedRef = useRef(onDemoLoaded);
   onDemoLoadedRef.current = onDemoLoaded;
 
+  const applyLoadedSession = useCallback(
+    (session: Awaited<ReturnType<typeof getChatSession>>) => {
+      setMessages(session.messages);
+      setFollowUps([]);
+
+      const lastAssistant = [...session.messages]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      if (lastAssistant) onResponseRef.current(lastAssistant);
+
+      const userWithAttachment = session.messages.find(
+        (m) => m.role === "user" && m.attachments && m.attachments.length > 0
+      );
+      if (userWithAttachment?.attachments?.[0] && lastAssistant) {
+        onDemoLoadedRef.current?.(userWithAttachment.attachments[0], lastAssistant);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (!sessionId || sessionsLoading) {
       if (!sessionId) {
@@ -290,35 +344,9 @@ export function ChatPanel({
 
     (async () => {
       try {
-        let session = await getChatSession(sessionId, userId);
+        const session = await getChatSession(sessionId, userId);
         if (cancelled) return;
-
-        const wasEmpty = session.messages.length === 0;
-        if (wasEmpty) {
-          try {
-            session = await seedBafogDemo(sessionId, userId);
-          } catch (err) {
-            console.error("Failed to seed BAföG demo:", err);
-          }
-        }
-
-        if (cancelled) return;
-        setMessages(session.messages);
-        setFollowUps([]);
-
-        const lastAssistant = [...session.messages]
-          .reverse()
-          .find((m) => m.role === "assistant");
-        if (lastAssistant) onResponseRef.current(lastAssistant);
-
-        if (wasEmpty) {
-          const userWithAttachment = session.messages.find(
-            (m) => m.role === "user" && m.attachments && m.attachments.length > 0
-          );
-          if (userWithAttachment?.attachments?.[0] && lastAssistant) {
-            onDemoLoadedRef.current?.(userWithAttachment.attachments[0], lastAssistant);
-          }
-        }
+        applyLoadedSession(session);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "";
@@ -340,7 +368,47 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, sessionsLoading, userId, onSessionIdChange]);
+  }, [sessionId, sessionsLoading, userId, onSessionIdChange, applyLoadedSession]);
+
+  const handleRefreshSample = async () => {
+    setRefreshingSample(true);
+    try {
+      const session = await refreshBafogDemo(userId);
+      if (session.id !== sessionId) {
+        onSessionIdChange(session.id);
+      }
+      applyLoadedSession(session);
+      onSampleRefreshed?.();
+    } catch (err) {
+      alert(
+        t("chat.refreshSampleFailed", {
+          error: err instanceof Error ? err.message : t("chat.unknownError"),
+        })
+      );
+    } finally {
+      setRefreshingSample(false);
+    }
+  };
+
+  const sampleRefreshButton = (
+    <button
+      type="button"
+      onClick={handleRefreshSample}
+      disabled={refreshingSample || sessionsLoading}
+      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-ink/10 bg-ink/5 px-2.5 py-1.5 text-xs font-semibold text-ink transition hover:bg-ink/10 active:bg-ink/10 disabled:opacity-50 touch-manipulation"
+      title={t("chat.refreshSample")}
+      aria-label={t("chat.refreshSample")}
+    >
+      {refreshingSample ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3.5 w-3.5" />
+      )}
+      <span className="hidden md:inline">
+        {refreshingSample ? t("chat.refreshingSample") : t("chat.refreshSample")}
+      </span>
+    </button>
+  );
 
   const handleSend = async (text?: string, currentAttachments?: Attachment[]) => {
     if (recognitionRef.current && isListening) {
@@ -396,22 +464,57 @@ export function ChatPanel({
 
   return (
     <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">
+      <div className="flex items-center justify-between gap-2 border-b border-ink/10 px-3 py-2.5 lg:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          {onOpenChatsList && (
+            <button
+              type="button"
+              onClick={onOpenChatsList}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-ink-muted transition touch-manipulation active:bg-surface-warm active:text-ink"
+              aria-label={t("layout.mobile.chats")}
+            >
+              <MessagesSquare className="h-4 w-4" />
+            </button>
+          )}
+          <MessageSquare className="h-4 w-4 shrink-0 text-pink" />
+          <h2 className="truncate font-semibold text-ink">{t("chat.title")}</h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {sampleRefreshButton}
+          {onOpenSources && sourcesCount > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenSources()}
+              className="relative flex shrink-0 items-center gap-1 rounded-lg border border-ink/10 bg-ink/5 px-2.5 py-1.5 text-xs font-semibold text-ink transition active:bg-ink/10 touch-manipulation"
+              aria-label={t("chat.referencesShort", { count: sourcesCount })}
+            >
+              <Shield className="h-3.5 w-3.5 text-pink" />
+              <span>{sourcesCount}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="hidden border-b border-ink/10 px-3 py-2.5 sm:block sm:px-4 sm:py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <MessageSquare className="h-4 w-4 shrink-0 text-pink" />
             <h2 className="truncate font-semibold text-ink">{t("chat.title")}</h2>
           </div>
-          {onOpenSources && sourcesCount > 0 && (
-            <button
-              type="button"
-              onClick={onOpenSources}
-              className="relative flex shrink-0 items-center gap-1 rounded-lg border border-ink/10 bg-ink/5 px-2.5 py-1.5 text-xs font-semibold text-ink transition active:bg-ink/10 lg:hidden touch-manipulation"
-            >
-              <Shield className="h-3.5 w-3.5 text-pink" />
-              <span>{sourcesCount}</span>
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {sampleRefreshButton}
+            {onOpenSources && sourcesCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onOpenSources()}
+                className="relative flex shrink-0 items-center gap-1 rounded-lg border border-ink/10 bg-ink/5 px-2.5 py-1.5 text-xs font-semibold text-ink transition active:bg-ink/10 lg:hidden touch-manipulation"
+                aria-label={t("chat.referencesShort", { count: sourcesCount })}
+              >
+                <Shield className="h-3.5 w-3.5 text-pink" />
+                <span>{sourcesCount}</span>
+              </button>
+            )}
+          </div>
         </div>
         <p className="mt-1 hidden text-xs text-slate-500 sm:block">
           {t("chat.subtitle")}
@@ -480,7 +583,15 @@ export function ChatPanel({
               >
                 {m.role === "assistant" ? (
                   <div className="prose-legal">
-                    <AssistantMessage content={m.content} citations={m.citations} />
+                    <AssistantMessage
+                      content={m.content}
+                      citations={m.citations}
+                      onCitationClick={
+                        onOpenSources && m.citations?.length
+                          ? () => openMessageSources(m)
+                          : undefined
+                      }
+                    />
                     {m.suggested_forms && m.suggested_forms.length > 0 && (
                       <div className="mt-3 border-t border-ink/10 pt-3">
                         <p className="mb-2 text-xs font-semibold text-ink/70">
@@ -538,20 +649,14 @@ export function ChatPanel({
                     )}
                   </div>
                 )}
-                {m.citations && m.citations.length > 0 && (
-                  onOpenSources ? (
-                    <button
-                      type="button"
-                      onClick={onOpenSources}
-                      className="mt-2 w-full border-t border-ink/10 pt-2 text-left text-[10px] text-slate-400 transition active:text-pink lg:hidden touch-manipulation"
-                    >
-                      {t("chat.citationsCount", { count: m.citations.length })}
-                    </button>
-                  ) : (
-                    <p className="mt-2 border-t border-ink/10 pt-2 text-[10px] text-slate-400">
-                      {t("chat.citationsCount", { count: m.citations.length })}
-                    </p>
-                  )
+                {m.citations && m.citations.length > 0 && onOpenSources && (
+                  <button
+                    type="button"
+                    onClick={() => openMessageSources(m)}
+                    className="mt-2 w-full border-t border-ink/10 pt-2 text-left text-[10px] font-medium text-slate-500 transition hover:text-pink active:text-pink touch-manipulation"
+                  >
+                    {t("chat.viewReferences", { count: m.citations.length })}
+                  </button>
                 )}
               </div>
             </div>
@@ -629,21 +734,32 @@ export function ChatPanel({
         >
           <div className="relative min-w-0 flex-1">
             <input
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={isListening ? t("chat.listening") : t("chat.placeholder")}
+              readOnly={!inputEditable}
+              enterKeyHint="send"
+              inputMode="text"
+              onPointerDown={() => {
+                if (inputEditable) return;
+                setInputEditable(true);
+                requestAnimationFrame(() => inputRef.current?.focus());
+              }}
+              onFocus={() => onInputFocusChange?.(true)}
+              onBlur={() => onInputFocusChange?.(false)}
               className={`w-full rounded-xl border border-ink/15 bg-white py-3 pl-3.5 text-base outline-none ring-pink/30 focus:ring-2 disabled:opacity-75 sm:py-2.5 sm:pl-4 sm:text-sm ${
                 isSpeechSupported ? "pr-[4.5rem] sm:pr-20" : "pr-11 sm:pr-12"
               }`}
               disabled={loading || loadingSession || uploading}
             />
-            <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 sm:right-2 sm:gap-1">
+            <div className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 sm:right-2 sm:gap-1">
               {/* File Upload Button */}
               <button
                 type="button"
                 onClick={capture.openScanMenu}
                 disabled={uploadDisabled}
-                className="cursor-pointer rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-ink active:bg-slate-200 touch-manipulation sm:p-1.5"
+                className="pointer-events-auto cursor-pointer rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-ink active:bg-slate-200 touch-manipulation sm:p-1.5"
                 title={t("chat.uploadFile")}
               >
                 <Paperclip className="h-4 w-4" />
@@ -662,7 +778,7 @@ export function ChatPanel({
                   type="button"
                   onClick={toggleListening}
                   disabled={loading || loadingSession || uploading}
-                  className={`cursor-pointer rounded-lg p-2 transition-all duration-300 touch-manipulation sm:p-1.5 ${
+                  className={`pointer-events-auto cursor-pointer rounded-lg p-2 transition-all duration-300 touch-manipulation sm:p-1.5 ${
                     isListening
                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
                       : "text-slate-400 hover:text-ink hover:bg-slate-100"

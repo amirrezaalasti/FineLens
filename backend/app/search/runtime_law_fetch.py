@@ -12,7 +12,11 @@ import logging
 import re
 from typing import Any
 
-from app.ingestion.statute_fetch import fetch_statute_paragraph
+from app.ingestion.statute_fetch import (
+    fetch_statute_paragraph,
+    format_law_display_name,
+    normalize_law_code,
+)
 from app.ingestion.oldp import _guess_book_code, fetch_law, search_laws
 from app.models.schemas import LegalSource
 from app.search.legal_query_analysis import QueryAnalysis
@@ -24,7 +28,8 @@ logger = logging.getLogger(__name__)
 _NEIGHBOR_RANGE = 3
 
 _NORM_PARSE_RE = re.compile(
-    r"§\s*(\d+[a-z]?)\s*(?:Abs\.?\s*\d+)?\s*(?:S\.?\s*\d+)?\s*([A-ZÄÖÜ]{2,10})",
+    r"§\s*(\d+[a-z]?)(?:\s*(?:Abs\.?|abs\.?)\s*\d+)?(?:\s*(?:S\.?|s\.?)\s*\d+)?\s*"
+    r"(SGB\s*X|SGB\s*10|BA[fF][öoO]?[gG]|[A-ZÄÖÜ]{2,10})",
     re.I,
 )
 
@@ -35,13 +40,13 @@ def _parse_norm_reference(norm: str) -> tuple[str, str] | None:
     """Parse '§ 961 BGB' or '961 BGB' into ('961', 'BGB')."""
     match = _NORM_PARSE_RE.search(norm)
     if match:
-        return match.group(1), match.group(2).upper()
+        return match.group(1), normalize_law_code(match.group(2))
     # Try just number + code
     parts = norm.replace("§", "").strip().split()
     if len(parts) >= 2:
         num_match = _PARA_ONLY_RE.search(parts[0])
         if num_match:
-            return num_match.group(1), parts[-1].upper()
+            return num_match.group(1), normalize_law_code(parts[-1])
     return None
 
 
@@ -126,7 +131,8 @@ async def fetch_predicted_norms(
             if not content or len(content.strip()) < 20:
                 continue
 
-            reference = f"§ {para} {law_code.upper()}"
+            display_code = format_law_display_name(law_code)
+            reference = f"§ {para} {display_code}"
             hits.append({
                 "fact": content,
                 "source_url": url,
@@ -159,7 +165,8 @@ async def fetch_predicted_norms(
             if not content or len(content.strip()) < 20:
                 continue
 
-            reference = f"§ {para} {law_code.upper()}"
+            display_code = format_law_display_name(law_code)
+            reference = f"§ {para} {display_code}"
             hits.append({
                 "fact": content,
                 "source_url": url,

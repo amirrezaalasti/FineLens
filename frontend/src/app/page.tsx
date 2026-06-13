@@ -64,9 +64,7 @@ export default function Home() {
   }, []);
   const [graphConnected, setGraphConnected] = useState<boolean | null>(null);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(() =>
-    loadStoredJson<string>(SESSION_STORAGE_KEY)
-  );
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [activeRightTab, setActiveRightTab] = useState<"citations" | "analysis">("citations");
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(() =>
@@ -136,6 +134,9 @@ export default function Home() {
         if (storedId && list.some((s) => s.id === storedId)) {
           setActiveSessionId(storedId);
         } else {
+          if (storedId) {
+            sessionStorage.removeItem(SESSION_STORAGE_KEY);
+          }
           const emptySession = list.find((s) => s.message_count === 0);
           if (emptySession) {
             setActiveSessionId(emptySession.id);
@@ -256,6 +257,7 @@ export default function Home() {
               <ChatPanel
                 userId={USER_ID}
                 sessionId={activeSessionId}
+                sessionsLoading={sessionsLoading}
                 onSessionIdChange={handleSessionIdChange}
                 onResponse={handleResponse}
                 onFormSuggest={handleFormSuggest}

@@ -91,7 +91,7 @@ async def get_bafog_demo_data() -> dict:
 
 
 async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession | None:
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session or session.user_id != user_id:
         return None
     if session.messages:
@@ -105,7 +105,7 @@ async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession 
     citations = [Citation(**c) for c in demo.get("citations", [])]
     suggested_forms = [LegalForm(**f) for f in demo.get("suggested_forms", [])]
 
-    append_messages(
+    await append_messages(
         session_id,
         StoredChatMessage(
             role="user",
@@ -120,4 +120,4 @@ async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession 
             suggested_forms=suggested_forms,
         ),
     )
-    return get_session(session_id)
+    return await get_session(session_id)

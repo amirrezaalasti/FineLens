@@ -325,17 +325,17 @@ async def upload_chat_file(file: UploadFile = File(...)) -> Attachment:
 
 @router.get("/sessions", response_model=list[ChatSessionSummary])
 async def get_chat_sessions(user_id: str = "default") -> list[ChatSessionSummary]:
-    return list_sessions(user_id)
+    return await list_sessions(user_id)
 
 
 @router.post("/sessions", response_model=ChatSession)
 async def create_chat_session(request: CreateChatSessionRequest) -> ChatSession:
-    return create_session(request.user_id)
+    return await create_session(request.user_id)
 
 
 @router.get("/sessions/{session_id}", response_model=ChatSession)
 async def get_chat_session(session_id: str, user_id: str = "default") -> ChatSession:
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Chat nicht gefunden")
     return session
@@ -358,10 +358,10 @@ async def seed_bafog_demo(session_id: str, user_id: str = "default") -> ChatSess
 
 @router.delete("/sessions/{session_id}")
 async def remove_chat_session(session_id: str, user_id: str = "default") -> dict:
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Chat nicht gefunden")
-    delete_session(session_id)
+    await delete_session(session_id)
     return {"deleted": True}
 
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
-import { getChatSession, sendChat, seedBafogDemo, uploadFile } from "@/lib/api";
+import { createChatSession, getChatSession, sendChat, seedBafogDemo, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
@@ -16,6 +16,7 @@ import { prefersNativeCamera, useDocumentCapture } from "@/hooks/useDocumentCapt
 interface ChatPanelProps {
   userId: string;
   sessionId: string | null;
+  sessionsLoading?: boolean;
   onSessionIdChange: (sessionId: string) => void;
   onResponse: (msg: ChatMessage) => void;
   onFormSuggest: (forms: LegalForm[]) => void;
@@ -33,6 +34,7 @@ const STARTERS_KEY = "chat.starters";
 export function ChatPanel({
   userId,
   sessionId,
+  sessionsLoading = false,
   onSessionIdChange,
   onResponse,
   onFormSuggest,
@@ -275,9 +277,11 @@ export function ChatPanel({
   onDemoLoadedRef.current = onDemoLoaded;
 
   useEffect(() => {
-    if (!sessionId) {
-      setMessages([]);
-      setFollowUps([]);
+    if (!sessionId || sessionsLoading) {
+      if (!sessionId) {
+        setMessages([]);
+        setFollowUps([]);
+      }
       return;
     }
 
@@ -315,8 +319,19 @@ export function ChatPanel({
             onDemoLoadedRef.current?.(userWithAttachment.attachments[0], lastAssistant);
           }
         }
-      } catch {
-        if (!cancelled) setMessages([]);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "";
+        if (message.includes("Chat nicht gefunden") || message.includes("404")) {
+          try {
+            const session = await createChatSession(userId);
+            if (!cancelled) onSessionIdChange(session.id);
+            return;
+          } catch (createErr) {
+            console.error("Failed to recover missing chat session:", createErr);
+          }
+        }
+        setMessages([]);
       } finally {
         if (!cancelled) setLoadingSession(false);
       }
@@ -325,7 +340,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, userId]);
+  }, [sessionId, sessionsLoading, userId, onSessionIdChange]);
 
   const handleSend = async (text?: string, currentAttachments?: Attachment[]) => {
     if (recognitionRef.current && isListening) {

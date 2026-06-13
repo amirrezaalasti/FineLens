@@ -148,7 +148,9 @@ async def generate_answer(
 ) -> ChatResponse:
     profile = get_profile(request.user_id)
     session = (
-        get_or_create_session(request.user_id, request.session_id) if persist else None
+        await get_or_create_session(request.user_id, request.session_id)
+        if persist
+        else None
     )
     answer_style = classify_query(request.message, profile)
 
@@ -346,7 +348,7 @@ async def generate_answer(
         except Exception:
             pass
 
-        append_messages(
+        await append_messages(
             session.id,
             StoredChatMessage(
                 role="user",

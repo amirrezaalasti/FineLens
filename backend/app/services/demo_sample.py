@@ -33,7 +33,7 @@ DEMO_QUERY = (
     "Ich habe diesen BAföG-Rückbescheid erhalten. "
     "Was bedeutet das für mich und welche Optionen habe ich?"
 )
-DEMO_TITLE = "BAföG Beispiel"
+wDEMO_TITLE = "BAföG Beispiel"
 
 
 def _load_cache() -> dict | None:

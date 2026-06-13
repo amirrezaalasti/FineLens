@@ -141,16 +141,18 @@ export function ChatPanel({
       const newAttachments: Attachment[] = [];
 
       for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file) continue;
         try {
-          const att = await uploadFile(files[i]);
+          const att = await uploadFile(file);
           att.isPending = true;
           newAttachments.push(att);
-          onUploadFile?.(files[i]);
+          onUploadFile?.(file);
         } catch (err) {
           console.error("Failed to upload file:", err);
           alert(
             t("chat.uploadError", {
-              fileName: files[i].name,
+              fileName: file.name,
               error: err instanceof Error ? err.message : t("chat.unknownError"),
             })
           );

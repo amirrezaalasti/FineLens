@@ -245,15 +245,17 @@ export function NewChatFlow({
   const processFiles = useCallback(
     async (files: FileList) => {
       if (files.length === 0) return;
+      const file = files[0];
+      if (!file) return;
       setUploading(true);
       try {
-        const att = await uploadFile(files[0]);
+        const att = await uploadFile(file);
         setAttachment(att);
-        onUploadFile?.(files[0]);
+        onUploadFile?.(file);
       } catch (err) {
         alert(
           t("chat.uploadError", {
-            fileName: files[0].name,
+            fileName: file.name,
             error: err instanceof Error ? err.message : t("chat.unknownError"),
           })
         );

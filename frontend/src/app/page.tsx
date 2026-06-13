@@ -101,6 +101,7 @@ export default function Home() {
 
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
   const handleUploadFile = useCallback((file: File) => {
+    if (!file) return;
     setUploadedFiles(prev => ({ ...prev, [file.name]: file }));
   }, []);
 

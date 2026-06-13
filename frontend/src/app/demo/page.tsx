@@ -1,11 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
   CheckCircle2,
   GitBranch,
-  Scale,
   Shield,
   Sparkles,
   Zap,
@@ -52,12 +52,13 @@ export default function DemoPage() {
       <nav className="sticky top-0 z-50 border-b border-navy/10 bg-navy/95 text-white backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5">
           <Link href="/demo" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/20 ring-1 ring-gold/40">
-              <Scale className="h-4 w-4 text-gold-light" />
-            </div>
-            <span className="font-serif text-lg font-semibold">
-              Fine<span className="text-gold-light">Lens</span>
-            </span>
+            <Image
+              src="/logo.jpeg"
+              alt="FineLens"
+              width={100}
+              height={36}
+              className="h-8 w-auto rounded-lg bg-white px-1.5 py-0.5 object-contain"
+            />
             <span className="hidden rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold-light sm:inline">
               Demo
             </span>

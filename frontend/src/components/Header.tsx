@@ -1,12 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import {
   BookOpen,
   FileText,
   Home,
   MessageSquare,
   ScanLine,
-  Search,
   User,
 } from "lucide-react";
 import { useTranslation } from "@/i18n";
@@ -94,13 +94,15 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
     <header className="z-40 shrink-0 bg-white px-4 pb-3 pt-safe shadow-[0_2px_12px_rgba(0,0,0,0.04)] sm:px-6">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-center justify-between gap-3 py-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-pink/15">
-              <Search className="h-4 w-4 text-pink" strokeWidth={2.5} />
-            </div>
-            <h1 className="truncate text-lg font-bold tracking-tight text-ink sm:text-xl">
-              FineLens
-            </h1>
+          <div className="flex min-w-0 shrink-0 items-center">
+            <Image
+              src="/logo.jpeg"
+              alt="FineLens"
+              width={120}
+              height={40}
+              className="h-9 w-auto object-contain sm:h-10"
+              priority
+            />
           </div>
 
           <nav className="hidden items-center gap-1 md:flex">

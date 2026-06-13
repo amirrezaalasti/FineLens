@@ -13,6 +13,10 @@ export const metadata: Metadata = {
   title: "FineLens — Graph-Enhanced Legal Intelligence",
   description:
     "KI-gestützter juristischer Assistent mit Graphiti Knowledge Graph, Quellennachweisen und intelligenten Formularen.",
+  icons: {
+    icon: "/logo.jpeg",
+    apple: "/logo.jpeg",
+  },
 };
 
 export const viewport: Viewport = {

@@ -134,6 +134,35 @@ export const en = {
     cameraPermissionError:
       "Camera access is not available. Allow access in browser settings or choose a file instead.",
   },
+  newChat: {
+    title: "New case",
+    subtitle: "Upload your document, add context, then chat with FineLens",
+    steps: {
+      upload: "Document",
+      details: "Details",
+      chat: "Chat",
+    },
+    uploadTitle: "Start with your document",
+    uploadDescription:
+      "Upload a PDF or photo, or scan the document with your camera. This is the first step for every new case.",
+    uploaded: "Document ready",
+    changeDocument: "Choose a different document",
+    processingDocument: "Processing document...",
+    detailsTitle: "Tell us more",
+    detailsDescription:
+      "When did this happen? Add any context that helps us understand your situation.",
+    eventDate: "When did this happen?",
+    context: "What happened? (context)",
+    contextPlaceholder:
+      "e.g. I received this letter from the BAföG office and I'm not sure whether I need to repay the amount...",
+    startChat: "Start chat",
+    cancel: "Cancel",
+    initialMessage:
+      "I've uploaded a document ({fileName}).\n\nWhen it happened: {eventDate}\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
+    initialMessageNoDate:
+      "I've uploaded a document ({fileName}).\n\nContext: {context}\n\nPlease analyze this document and advise me on my options.",
+    dateNotSpecified: "Not specified",
+  },
   sidebar: {
     newChat: "New chat",
     chatLabel: "Case",

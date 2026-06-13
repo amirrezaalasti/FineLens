@@ -325,6 +325,15 @@ async def generate_answer(
         answer_style,
         has_uploaded_document=bool(all_attachments),
     )
+    if request.language in ("de", "en"):
+        if request.language == "en":
+            prompt += (
+                "\n\nIMPORTANT: Write the entire response in English — headings, numbered lists, "
+                "follow-up questions, and disclaimer — even though the legal context and uploaded "
+                "document may be in German."
+            )
+        else:
+            prompt += "\n\nWICHTIG: Antworte vollständig auf Deutsch."
     messages.append({"role": "user", "content": prompt})
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)

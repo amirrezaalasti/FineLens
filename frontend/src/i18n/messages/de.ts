@@ -134,6 +134,35 @@ export const de = {
     cameraPermissionError:
       "Kamerazugriff nicht möglich. Bitte erlauben Sie den Zugriff in den Browsereinstellungen oder wählen Sie eine Datei.",
   },
+  newChat: {
+    title: "Neuer Vorgang",
+    subtitle: "Dokument hochladen, Kontext angeben, dann mit FineLens chatten",
+    steps: {
+      upload: "Dokument",
+      details: "Details",
+      chat: "Chat",
+    },
+    uploadTitle: "Beginnen Sie mit Ihrem Dokument",
+    uploadDescription:
+      "Laden Sie ein PDF oder Foto hoch oder scannen Sie das Dokument mit der Kamera. Dies ist der erste Schritt für jeden neuen Vorgang.",
+    uploaded: "Dokument bereit",
+    changeDocument: "Anderes Dokument wählen",
+    processingDocument: "Dokument wird verarbeitet...",
+    detailsTitle: "Erzählen Sie uns mehr",
+    detailsDescription:
+      "Wann ist es passiert? Fügen Sie Kontext hinzu, damit wir Ihre Situation besser verstehen.",
+    eventDate: "Wann ist es passiert?",
+    context: "Was ist passiert? (Kontext)",
+    contextPlaceholder:
+      "z. B. Ich habe diesen Bescheid vom BAföG-Amt erhalten und bin unsicher, ob ich den Betrag zurückzahlen muss...",
+    startChat: "Chat starten",
+    cancel: "Abbrechen",
+    initialMessage:
+      "Ich habe ein Dokument hochgeladen ({fileName}).\n\nWann es passiert ist: {eventDate}\n\nKontext: {context}\n\nBitte analysieren Sie dieses Dokument und beraten Sie mich zu meinen Optionen.",
+    initialMessageNoDate:
+      "Ich habe ein Dokument hochgeladen ({fileName}).\n\nKontext: {context}\n\nBitte analysieren Sie dieses Dokument und beraten Sie mich zu meinen Optionen.",
+    dateNotSpecified: "Nicht angegeben",
+  },
   sidebar: {
     newChat: "Neuer Chat",
     chatLabel: "Vorgang",

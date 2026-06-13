@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Header, MobileBottomNav } from "@/components/Header";
 import type { MobileChatPanel } from "@/components/ResizableChatLayout";
 import { ChatPanel } from "@/components/ChatPanel";
+import { NewChatFlow } from "@/components/NewChatFlow";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
 import { ResizableChatLayout } from "@/components/ResizableChatLayout";
@@ -20,6 +21,12 @@ import {
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField, SourceViewPayload } from "@/lib/types";
+
+interface BootstrapMessage {
+  sessionId: string;
+  text: string;
+  attachments: Attachment[];
+}
 
 type Tab = "chat" | "profile" | "forms" | "sources";
 
@@ -48,7 +55,7 @@ function storeJson(key: string, value: unknown) {
 }
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [tab, setTab] = useState<Tab>("chat");
   const [citations, setCitations] = useState<Citation[]>([]);
   const [transparencyNote, setTransparencyNote] = useState("");
@@ -76,6 +83,9 @@ export default function Home() {
   );
   const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
   const [chatInputFocused, setChatInputFocused] = useState(false);
+  const [showNewChatFlow, setShowNewChatFlow] = useState(false);
+  const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
+  const [bootstrapMessage, setBootstrapMessage] = useState<BootstrapMessage | null>(null);
 
   const handleTabChange = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -156,7 +166,7 @@ export default function Home() {
             setActiveSessionId(session.id);
             storeJson(SESSION_STORAGE_KEY, session.id);
             try {
-              await seedBafogDemo(session.id, USER_ID);
+              await seedBafogDemo(session.id, USER_ID, locale);
             } catch (err) {
               console.error("Failed to seed BAföG demo:", err);
             }
@@ -176,19 +186,68 @@ export default function Home() {
     };
   }, [refreshSessions]);
 
-  const handleNewChat = async () => {
-    const session = await createChatSession(USER_ID);
-    setActiveSessionId(session.id);
+  const handleNewChat = () => {
+    setReturnSessionId(activeSessionId);
+    setShowNewChatFlow(true);
+    setActiveSessionId(null);
     setCitations([]);
     setTransparencyNote("");
     setSelectedAttachment(null);
     setDraftAttachments([]);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
+  };
+
+  const handleNewChatCancel = () => {
+    setShowNewChatFlow(false);
+    if (returnSessionId) {
+      setActiveSessionId(returnSessionId);
+    }
+    setReturnSessionId(null);
+  };
+
+  const handleNewChatComplete = async (result: {
+    attachment: Attachment;
+    eventDate: string;
+    context: string;
+  }) => {
+    const session = await createChatSession(USER_ID);
+    const eventDateLabel = result.eventDate
+      ? result.eventDate
+      : t("newChat.dateNotSpecified");
+    const messageText = result.eventDate
+      ? t("newChat.initialMessage", {
+          fileName: result.attachment.name,
+          eventDate: eventDateLabel,
+          context: result.context,
+        })
+      : t("newChat.initialMessageNoDate", {
+          fileName: result.attachment.name,
+          context: result.context,
+        });
+
+    setBootstrapMessage({
+      sessionId: session.id,
+      text: messageText,
+      attachments: [result.attachment],
+    });
+    setShowNewChatFlow(false);
+    setReturnSessionId(null);
+    setActiveSessionId(session.id);
+    setSelectedAttachment(result.attachment);
+    setDraftAttachments([]);
+    setActiveRightTab("analysis");
     await refreshSessions();
   };
 
+  const handleBootstrapComplete = useCallback(() => {
+    setBootstrapMessage(null);
+  }, []);
+
   const handleSelectSession = (sessionId: string) => {
+    setShowNewChatFlow(false);
+    setReturnSessionId(null);
+    setBootstrapMessage(null);
     setActiveSessionId(sessionId);
     setActiveRightTab("citations");
     setMobileChatPanel("chat");
@@ -283,25 +342,38 @@ export default function Home() {
               />
             }
             chat={
-              <ChatPanel
-                userId={USER_ID}
-                sessionId={activeSessionId}
-                sessionsLoading={sessionsLoading}
-                onSessionIdChange={handleSessionIdChange}
-                onResponse={handleResponse}
-                onFormSuggest={handleFormSuggest}
-                onOpenFormsTab={() => handleTabChange("forms")}
-                onAttachmentSelect={handleAttachmentSelect}
-                onDemoLoaded={handleDemoLoaded}
-                onSampleRefreshed={refreshSessions}
-                onOpenSources={handleOpenSources}
-                onOpenChatsList={() => setMobileChatPanel("sidebar")}
-                onInputFocusChange={setChatInputFocused}
-                chatActive={tab === "chat"}
-                sourcesCount={citations.length}
-                attachments={draftAttachments}
-                setAttachments={setDraftAttachments}
-              />
+              showNewChatFlow ? (
+                <NewChatFlow
+                  onComplete={handleNewChatComplete}
+                  onCancel={handleNewChatCancel}
+                />
+              ) : (
+                <ChatPanel
+                  userId={USER_ID}
+                  sessionId={activeSessionId}
+                  sessionsLoading={sessionsLoading}
+                  onSessionIdChange={handleSessionIdChange}
+                  onResponse={handleResponse}
+                  onFormSuggest={handleFormSuggest}
+                  onOpenFormsTab={() => handleTabChange("forms")}
+                  onAttachmentSelect={handleAttachmentSelect}
+                  onDemoLoaded={handleDemoLoaded}
+                  onSampleRefreshed={refreshSessions}
+                  onOpenSources={handleOpenSources}
+                  onOpenChatsList={() => setMobileChatPanel("sidebar")}
+                  onInputFocusChange={setChatInputFocused}
+                  chatActive={tab === "chat"}
+                  sourcesCount={citations.length}
+                  attachments={draftAttachments}
+                  setAttachments={setDraftAttachments}
+                  bootstrapMessage={
+                    bootstrapMessage && bootstrapMessage.sessionId === activeSessionId
+                      ? bootstrapMessage
+                      : null
+                  }
+                  onBootstrapComplete={handleBootstrapComplete}
+                />
+              )
             }
             citations={
               <div className="flex h-full flex-col min-h-0 gap-3">

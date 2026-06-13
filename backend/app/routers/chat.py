@@ -342,11 +342,15 @@ async def get_chat_session(session_id: str, user_id: str = "default") -> ChatSes
 
 
 @router.post("/demo/bafog/seed", response_model=ChatSession)
-async def seed_bafog_demo(session_id: str, user_id: str = "default") -> ChatSession:
+async def seed_bafog_demo(
+    session_id: str,
+    user_id: str = "default",
+    language: str = "de",
+) -> ChatSession:
     from app.services.demo_sample import seed_bafog_demo_session
 
     try:
-        session = await seed_bafog_demo_session(session_id, user_id)
+        session = await seed_bafog_demo_session(session_id, user_id, language)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Demo konnte nicht geladen werden: {e}"
@@ -357,11 +361,11 @@ async def seed_bafog_demo(session_id: str, user_id: str = "default") -> ChatSess
 
 
 @router.post("/demo/bafog/refresh", response_model=ChatSession)
-async def refresh_bafog_demo(user_id: str = "default") -> ChatSession:
+async def refresh_bafog_demo(user_id: str = "default", language: str = "de") -> ChatSession:
     from app.services.demo_sample import refresh_bafog_demo_session
 
     try:
-        return await refresh_bafog_demo_session(user_id)
+        return await refresh_bafog_demo_session(user_id, language)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Beispiel konnte nicht aktualisiert werden: {e}"

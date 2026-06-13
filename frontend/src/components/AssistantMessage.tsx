@@ -48,7 +48,7 @@ function CitationRef({
     t("citations.sourceFallback", { num });
 
   const className =
-    "ml-0.5 inline-flex items-center rounded bg-pink/15 px-1 py-px text-[10px] font-bold text-pink transition";
+    "mx-0.5 inline-flex items-center rounded bg-pink/15 px-1.5 py-px text-[10px] font-bold text-pink transition";
 
   const sourceUrl =
     citation?.source_url && !isPortalHomepage(citation.source_url)
@@ -101,7 +101,7 @@ export function AssistantMessage({
   citations,
   onCitationClick,
 }: AssistantMessageProps) {
-  const markdown = content.replace(/\[(\d+)\]/g, "[$1](cite:$1)");
+  const markdown = content.replace(/\s*\[(\d+)\]/g, "");
 
   return (
     <ReactMarkdown

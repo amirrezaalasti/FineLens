@@ -90,16 +90,20 @@ export async function deleteChatSession(sessionId: string, userId: string) {
   );
 }
 
-export async function seedBafogDemo(sessionId: string, userId: string) {
+export async function seedBafogDemo(
+  sessionId: string,
+  userId: string,
+  language: "de" | "en" = "de"
+) {
   return request<ChatSession>(
-    `/chat/demo/bafog/seed?session_id=${encodeURIComponent(sessionId)}&user_id=${encodeURIComponent(userId)}`,
+    `/chat/demo/bafog/seed?session_id=${encodeURIComponent(sessionId)}&user_id=${encodeURIComponent(userId)}&language=${language}`,
     { method: "POST" }
   );
 }
 
-export async function refreshBafogDemo(userId: string) {
+export async function refreshBafogDemo(userId: string, language: "de" | "en" = "de") {
   return request<ChatSession>(
-    `/chat/demo/bafog/refresh?user_id=${encodeURIComponent(userId)}`,
+    `/chat/demo/bafog/refresh?user_id=${encodeURIComponent(userId)}&language=${language}`,
     { method: "POST" }
   );
 }

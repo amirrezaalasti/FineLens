@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs */
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -12,6 +13,12 @@ import {
 } from "@/components/DocumentCaptureSheet";
 import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { prefersNativeCamera, useDocumentCapture } from "@/hooks/useDocumentCapture";
+
+interface BootstrapMessage {
+  sessionId: string;
+  text: string;
+  attachments: Attachment[];
+}
 
 interface ChatPanelProps {
   userId: string;
@@ -31,6 +38,8 @@ interface ChatPanelProps {
   sourcesCount?: number;
   attachments: Attachment[];
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
+  bootstrapMessage?: BootstrapMessage | null;
+  onBootstrapComplete?: () => void;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -53,6 +62,8 @@ export function ChatPanel({
   sourcesCount = 0,
   attachments,
   setAttachments,
+  bootstrapMessage = null,
+  onBootstrapComplete,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -75,6 +86,7 @@ export function ChatPanel({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputEditable, setInputEditable] = useState(false);
+  const bootstrapSentRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -373,7 +385,7 @@ export function ChatPanel({
   const handleRefreshSample = async () => {
     setRefreshingSample(true);
     try {
-      const session = await refreshBafogDemo(userId);
+      const session = await refreshBafogDemo(userId, locale);
       if (session.id !== sessionId) {
         onSessionIdChange(session.id);
       }
@@ -461,6 +473,35 @@ export function ChatPanel({
       setLoading(false);
     }
   };
+
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+
+  useEffect(() => {
+    if (
+      !bootstrapMessage ||
+      !sessionId ||
+      bootstrapMessage.sessionId !== sessionId ||
+      loadingSession ||
+      sessionsLoading
+    ) {
+      return;
+    }
+
+    const bootstrapKey = `${bootstrapMessage.sessionId}:${bootstrapMessage.text}`;
+    if (bootstrapSentRef.current === bootstrapKey) return;
+
+    bootstrapSentRef.current = bootstrapKey;
+    void handleSendRef
+      .current(bootstrapMessage.text, bootstrapMessage.attachments)
+      .finally(() => onBootstrapComplete?.());
+  }, [
+    bootstrapMessage,
+    sessionId,
+    loadingSession,
+    sessionsLoading,
+    onBootstrapComplete,
+  ]);
 
   return (
     <div className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">

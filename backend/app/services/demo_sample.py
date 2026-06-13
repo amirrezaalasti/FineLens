@@ -1,4 +1,4 @@
-"""Cached BAföG sample document demo — LLM runs once, result is reused."""
+"""Cached BAföG sample document demo — LLM runs once per language, result is reused."""
 
 from __future__ import annotations
 
@@ -27,33 +27,67 @@ from app.services.chat_store import (
 )
 
 SAMPLE_PDF = Path(__file__).resolve().parents[2] / "samples" / "BAfoeg_Rueckbescheid_Beispiel.pdf"
-CACHE_FILE = settings.data_dir_path / "bafog_demo_cache.json"
-CACHE_VERSION = "4"
-DEMO_QUERY = (
-    "Ich habe diesen BAföG-Rückbescheid erhalten. "
-    "Was bedeutet das für mich und welche Optionen habe ich?"
-)
-wDEMO_TITLE = "BAföG Beispiel"
+CACHE_VERSION = "5"
+PROMPT_VERSION = "2"
+DEMO_LANGUAGES = ("de", "en")
+
+DEMO_CONFIG: dict[str, dict[str, str]] = {
+    "de": {
+        "query": (
+            "Ich habe diesen BAföG-Rückbescheid erhalten. "
+            "Was bedeutet das für mich und welche Optionen habe ich?"
+        ),
+        "title": "BAföG Beispiel",
+    },
+    "en": {
+        "query": (
+            "I received this BAföG repayment notice. "
+            "What does it mean for me and what options do I have?"
+        ),
+        "title": "BAföG Sample",
+    },
+}
+
+_ALL_DEMO_QUERIES = {cfg["query"] for cfg in DEMO_CONFIG.values()}
+_ALL_DEMO_TITLES = {cfg["title"] for cfg in DEMO_CONFIG.values()}
 
 
-def _load_cache() -> dict | None:
-    if not CACHE_FILE.exists():
+def _normalize_language(language: str) -> str:
+    return language if language in DEMO_CONFIG else "de"
+
+
+def _cache_file(language: str) -> Path:
+    return settings.data_dir_path / f"bafog_demo_cache_{_normalize_language(language)}.json"
+
+
+def _load_cache(language: str) -> dict | None:
+    cache_file = _cache_file(language)
+    if not cache_file.exists():
         return None
     try:
-        data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
         if data.get("cache_version") != CACHE_VERSION:
+            return None
+        if data.get("prompt_version") != PROMPT_VERSION:
             return None
         return data
     except json.JSONDecodeError:
         return None
 
 
-def _save_cache(data: dict) -> None:
+def _save_cache(language: str, data: dict) -> None:
     settings.data_dir_path.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    cache_file = _cache_file(language)
+    cache_file.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
 
 
-async def _build_demo_cache() -> dict:
+async def _build_demo_cache(language: str) -> dict:
+    language = _normalize_language(language)
+    config = DEMO_CONFIG[language]
+
     if not SAMPLE_PDF.exists():
         raise FileNotFoundError(f"Sample PDF not found: {SAMPLE_PDF}")
 
@@ -73,17 +107,20 @@ async def _build_demo_cache() -> dict:
 
     chat_response: ChatResponse = await generate_answer(
         ChatRequest(
-            message=DEMO_QUERY,
+            message=config["query"],
             user_id="default",
             attachments=[attachment],
-            language="de",
+            language=language,
         ),
         persist=False,
     )
 
     data = {
         "cache_version": CACHE_VERSION,
-        "query": DEMO_QUERY,
+        "prompt_version": PROMPT_VERSION,
+        "language": language,
+        "query": config["query"],
+        "title": config["title"],
         "attachment": attachment.model_dump(mode="json"),
         "answer": chat_response.answer,
         "citations": [c.model_dump(mode="json") for c in chat_response.citations],
@@ -91,19 +128,20 @@ async def _build_demo_cache() -> dict:
         "follow_up_questions": chat_response.follow_up_questions,
         "transparency_note": chat_response.transparency_note,
     }
-    _save_cache(data)
+    _save_cache(language, data)
     return data
 
 
-async def get_bafog_demo_data() -> dict:
-    cached = _load_cache()
+async def get_bafog_demo_data(language: str = "de") -> dict:
+    language = _normalize_language(language)
+    cached = _load_cache(language)
     if cached:
         return cached
-    return await _build_demo_cache()
+    return await _build_demo_cache(language)
 
 
-async def _build_demo_messages() -> tuple[StoredChatMessage, StoredChatMessage]:
-    demo = await get_bafog_demo_data()
+async def _build_demo_messages(language: str) -> tuple[StoredChatMessage, StoredChatMessage]:
+    demo = await get_bafog_demo_data(language)
     attachment = Attachment(**demo["attachment"])
 
     from app.models.schemas import Citation, LegalForm
@@ -127,33 +165,66 @@ async def _build_demo_messages() -> tuple[StoredChatMessage, StoredChatMessage]:
     )
 
 
-def _is_bafog_demo_session(session: ChatSession) -> bool:
-    if not session.messages:
-        return False
+def _session_demo_language(session: ChatSession) -> str | None:
+    if session.title in _ALL_DEMO_TITLES:
+        for lang, config in DEMO_CONFIG.items():
+            if session.title == config["title"]:
+                return lang
+
     for message in session.messages:
         if message.role != "user":
             continue
         content = (message.content or "").strip()
-        if content == DEMO_QUERY:
-            return True
-        if message.attachments and any(
+        for lang, config in DEMO_CONFIG.items():
+            if content == config["query"]:
+                return lang
+
+    has_bafog_attachment = any(
+        message.role == "user"
+        and message.attachments
+        and any(
             "bafög" in att.name.lower() or "bafoeg" in att.name.lower()
             for att in message.attachments
-        ):
-            return True
-    return False
+        )
+        for message in session.messages
+    )
+    if has_bafog_attachment:
+        for message in session.messages:
+            if message.role != "user":
+                continue
+            content = (message.content or "").strip()
+            if content in _ALL_DEMO_QUERIES:
+                for lang, config in DEMO_CONFIG.items():
+                    if content == config["query"]:
+                        return lang
+        return "de"
+
+    return None
 
 
-async def find_bafog_demo_session(user_id: str) -> ChatSession | None:
+def _is_bafog_demo_session(session: ChatSession, language: str | None = None) -> bool:
+    detected = _session_demo_language(session)
+    if detected is None:
+        return False
+    if language is None:
+        return True
+    return detected == _normalize_language(language)
+
+
+async def find_bafog_demo_session(user_id: str, language: str = "de") -> ChatSession | None:
+    language = _normalize_language(language)
     for summary in await list_sessions(user_id):
         session = await get_session(summary.id)
-        if session and _is_bafog_demo_session(session):
+        if session and _is_bafog_demo_session(session, language):
             return session
     return None
 
 
-async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession | None:
-    existing = await find_bafog_demo_session(user_id)
+async def seed_bafog_demo_session(
+    session_id: str, user_id: str, language: str = "de"
+) -> ChatSession | None:
+    language = _normalize_language(language)
+    existing = await find_bafog_demo_session(user_id, language)
     if existing:
         return existing
 
@@ -163,44 +234,48 @@ async def seed_bafog_demo_session(session_id: str, user_id: str) -> ChatSession 
     if session.messages:
         return session
 
-    user_message, assistant_message = await _build_demo_messages()
+    config = DEMO_CONFIG[language]
+    user_message, assistant_message = await _build_demo_messages(language)
     await append_messages(session_id, user_message, assistant_message)
     updated = await get_session(session_id)
     if updated and updated.title == "Neuer Chat":
         return await replace_session_messages(
             session_id,
             updated.messages,
-            title=DEMO_TITLE,
+            title=config["title"],
         )
     return updated
 
 
-async def refresh_bafog_demo_session(user_id: str) -> ChatSession:
-    existing = await find_bafog_demo_session(user_id)
+async def refresh_bafog_demo_session(user_id: str, language: str = "de") -> ChatSession:
+    language = _normalize_language(language)
+    config = DEMO_CONFIG[language]
+    existing = await find_bafog_demo_session(user_id, language)
     if existing:
         session_id = existing.id
     else:
         session = await create_session(user_id)
         session_id = session.id
 
-    user_message, assistant_message = await _build_demo_messages()
+    user_message, assistant_message = await _build_demo_messages(language)
     refreshed = await replace_session_messages(
         session_id,
         [user_message, assistant_message],
-        title=DEMO_TITLE,
+        title=config["title"],
     )
     if not refreshed:
         raise RuntimeError("Failed to refresh BAföG demo session")
     return refreshed
 
 
-async def get_or_create_bafog_demo_session(user_id: str) -> ChatSession:
-    existing = await find_bafog_demo_session(user_id)
+async def get_or_create_bafog_demo_session(user_id: str, language: str = "de") -> ChatSession:
+    language = _normalize_language(language)
+    existing = await find_bafog_demo_session(user_id, language)
     if existing:
         return existing
 
     session = await create_session(user_id)
-    seeded = await seed_bafog_demo_session(session.id, user_id)
+    seeded = await seed_bafog_demo_session(session.id, user_id, language)
     if not seeded:
         raise RuntimeError("Failed to create BAföG demo session")
     return seeded

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
 import { getChatSession, sendChat, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
 import { AssistantMessage } from "@/components/AssistantMessage";
+import {
+  DocumentCaptureInputs,
+  DocumentCaptureSheet,
+} from "@/components/DocumentCaptureSheet";
+import { CameraScannerModal } from "@/components/CameraScannerModal";
+import { prefersNativeCamera, useDocumentCapture } from "@/hooks/useDocumentCapture";
 
 interface ChatPanelProps {
   userId: string;
@@ -53,43 +59,66 @@ export function ChatPanel({
   const isListeningRef = useRef(false);
   const lastToggleRef = useRef(0);
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
+  const processFiles = useCallback(
+    async (files: FileList) => {
+      setUploading(true);
+      const newAttachments: Attachment[] = [];
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setUploading(true);
-    const newAttachments: Attachment[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      try {
-        const att = await uploadFile(files[i]);
-        newAttachments.push(att);
-      } catch (err) {
-        console.error("Failed to upload file:", err);
-        alert(t("chat.uploadError", {
-          fileName: files[i].name,
-          error: err instanceof Error ? err.message : t("chat.unknownError"),
-        }));
+      for (let i = 0; i < files.length; i++) {
+        try {
+          const att = await uploadFile(files[i]);
+          newAttachments.push(att);
+        } catch (err) {
+          console.error("Failed to upload file:", err);
+          alert(
+            t("chat.uploadError", {
+              fileName: files[i].name,
+              error: err instanceof Error ? err.message : t("chat.unknownError"),
+            })
+          );
+        }
       }
-    }
 
-    setAttachments((prev) => [...prev, ...newAttachments]);
-    setUploading(false);
-    
-    if (newAttachments.length > 0 && onAttachmentSelect) {
-      onAttachmentSelect(newAttachments[0]);
+      setAttachments((prev) => [...prev, ...newAttachments]);
+      setUploading(false);
+
+      if (newAttachments.length > 0 && onAttachmentSelect) {
+        onAttachmentSelect(newAttachments[0]);
+      }
+    },
+    [onAttachmentSelect, setAttachments, t]
+  );
+
+  const uploadDisabled = loading || loadingSession || uploading;
+
+  const capture = useDocumentCapture({
+    onFilesSelected: processFiles,
+    disabled: uploadDisabled,
+  });
+
+  const openGallery = useCallback(() => {
+    if (uploadDisabled) return;
+    capture.setMenuOpen(false);
+    galleryInputRef.current?.click();
+  }, [capture, uploadDisabled]);
+
+  const handleScanWithCamera = useCallback(() => {
+    if (prefersNativeCamera()) {
+      capture.openNativeCamera();
+      return;
     }
-    
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
+    capture.openWebCamera();
+  }, [capture]);
+
+  const handleCaptureInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      capture.handleInputChange(e);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+    },
+    [capture]
+  );
 
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
@@ -369,8 +398,9 @@ export function ChatPanel({
 
             <button
               type="button"
-              onClick={triggerFileInput}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-pink-dark active:scale-[0.98] touch-manipulation"
+              onClick={handleScanWithCamera}
+              disabled={uploadDisabled}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-pink px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-pink-dark active:scale-[0.98] touch-manipulation disabled:opacity-50"
             >
               <ScanLine className="h-4 w-4" />
               {t("chat.heroCta")}
@@ -570,20 +600,19 @@ export function ChatPanel({
               {/* File Upload Button */}
               <button
                 type="button"
-                onClick={triggerFileInput}
-                disabled={loading || loadingSession || uploading}
+                onClick={capture.openScanMenu}
+                disabled={uploadDisabled}
                 className="cursor-pointer rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-ink active:bg-slate-200 touch-manipulation sm:p-1.5"
                 title={t("chat.uploadFile")}
               >
                 <Paperclip className="h-4 w-4" />
               </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/*,application/pdf,text/*"
-                className="hidden"
-                multiple
+              <DocumentCaptureInputs
+                cameraInputRef={capture.cameraInputRef}
+                fileInputRef={capture.fileInputRef}
+                galleryInputRef={galleryInputRef}
+                onChange={handleCaptureInputChange}
+                disabled={uploadDisabled}
               />
 
               {/* Microphone Button */}
@@ -618,6 +647,27 @@ export function ChatPanel({
           </button>
         </form>
       </div>
+
+      <DocumentCaptureSheet
+        open={capture.menuOpen}
+        onClose={() => capture.setMenuOpen(false)}
+        onScanWithCamera={handleScanWithCamera}
+        onChooseFile={capture.openFilePicker}
+        onChooseGallery={openGallery}
+        showWebCameraOption={capture.showNativeCameraOption}
+        showGalleryOption={prefersNativeCamera()}
+      />
+
+      <CameraScannerModal
+        open={capture.cameraModalOpen}
+        onClose={() => capture.setCameraModalOpen(false)}
+        onCapture={capture.handleWebCapture}
+        title={t("capture.cameraTitle")}
+        hint={t("capture.cameraHint")}
+        captureLabel={t("capture.cameraCapture")}
+        cancelLabel={t("common.back")}
+        permissionError={t("capture.cameraPermissionError")}
+      />
     </div>
   );
 }

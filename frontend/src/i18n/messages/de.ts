@@ -86,6 +86,21 @@ export const de = {
     apiError:
       "Es ist ein Fehler aufgetreten. Bitte prüfen Sie:\n• Backend läuft auf Port 8000\n• OPENAI_API_KEY ist in .env gesetzt\n• FalkorDB läuft (docker compose up -d)\n• Frontend-Port ist in CORS_ORIGINS erlaubt\n\n{details}",
   },
+  capture: {
+    title: "Dokument hinzufügen",
+    subtitle: "Scannen Sie ein Dokument mit der Handy-Kamera oder wählen Sie eine Datei.",
+    scanCamera: "Mit Kamera scannen",
+    scanCameraHint: "Öffnet die Kamera Ihres Smartphones",
+    chooseGallery: "Aus Galerie wählen",
+    chooseGalleryHint: "Vorhandenes Foto auswählen",
+    chooseFile: "Datei auswählen",
+    chooseFileHint: "PDF, Bild oder Textdatei",
+    cameraTitle: "Dokument scannen",
+    cameraHint: "Richten Sie die Kamera auf das Dokument und halten Sie es gerade.",
+    cameraCapture: "Aufnahme",
+    cameraPermissionError:
+      "Kamerazugriff nicht möglich. Bitte erlauben Sie den Zugriff in den Browsereinstellungen oder wählen Sie eine Datei.",
+  },
   sidebar: {
     newChat: "Neuer Chat",
     chatLabel: "Vorgang",

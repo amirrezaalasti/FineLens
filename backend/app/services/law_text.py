@@ -117,6 +117,19 @@ async def enrich_citation_with_exact_text(citation: Citation) -> Citation:
         return ensure_citation_url(updated)
 
 
-async def enrich_citations(citations: list[Citation]) -> list[Citation]:
-    enriched = await asyncio.gather(*(enrich_citation_with_exact_text(c) for c in citations))
-    return [ensure_citation_url(c) for c in enriched]
+async def enrich_citations(
+    citations: list[Citation],
+    *,
+    max_items: int | None = None,
+) -> list[Citation]:
+    to_enrich = citations[:max_items] if max_items else citations
+    rest = citations[len(to_enrich) :]
+    try:
+        enriched = await asyncio.wait_for(
+            asyncio.gather(*(enrich_citation_with_exact_text(c) for c in to_enrich)),
+            timeout=20,
+        )
+        enriched = [ensure_citation_url(c) for c in enriched]
+    except TimeoutError:
+        enriched = [ensure_citation_url(c) for c in to_enrich]
+    return enriched + [ensure_citation_url(c) for c in rest]

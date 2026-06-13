@@ -18,7 +18,7 @@ from app.search.legal_search_config import (
     legal_hybrid_edge_search,
     node_bm25_search,
 )
-from app.search.query_rewriter import rewrite_query
+from app.search.query_rewriter import RewrittenQuery, rewrite_query
 from app.search.relevance_scorer import rescore_hits, retrieval_quality
 from app.ingestion.buzer import buzer_law_slug
 from app.ingestion.statute_fetch import build_statute_url
@@ -166,11 +166,17 @@ def _predicted_norms_cover_candidates(
     return False
 
 
-async def search_legal_context(query: str, limit: int | None = None, history: list = None) -> list[dict[str, Any]]:
+async def search_legal_context(
+    query: str,
+    limit: int | None = None,
+    history: list = None,
+    rewritten: RewrittenQuery | None = None,
+) -> list[dict[str, Any]]:
     limit = limit or settings.legal_search_limit
 
     # ── Step 1: Rewrite the query via LLM to extract legal keywords ──────
-    rewritten = await rewrite_query(query, history=history)
+    if rewritten is None:
+        rewritten = await rewrite_query(query, history=history)
     doc_norms = extract_norm_references(query)
     if doc_norms:
         merged = list(rewritten.norm_candidates)
@@ -197,7 +203,7 @@ async def search_legal_context(query: str, limit: int | None = None, history: li
     driver = graphiti.clients.driver.clone(database=LEGAL_GROUP)
     enhanced = enhance_legal_query(query)
     keyword_enhanced = enhance_legal_query(analysis.keyword_query)
-    candidate_limit = limit * 3
+    candidate_limit = limit * 2
 
     # ── Step 3: Fetch predicted norms from buzer.de IN PARALLEL with graph search
     # This is the highest-signal path: the LLM identified specific norms,
@@ -206,46 +212,90 @@ async def search_legal_context(query: str, limit: int | None = None, history: li
         fetch_predicted_norms(rewritten.norm_candidates, limit=limit)
     ) if rewritten.norm_candidates else None
 
-    # ── Step 4: BM25 passes (full query + rewritten keywords) ────────────
-    bm25_full = await graphiti.search_(
-        query=enhanced,
-        group_ids=[LEGAL_GROUP],
-        config=bm25_only_edge_search(candidate_limit),
-        driver=driver,
-    )
-
-    bm25_keyword = await graphiti.search_(
-        query=keyword_enhanced,
-        group_ids=[LEGAL_GROUP],
-        config=bm25_only_edge_search(candidate_limit),
-        driver=driver,
-    )
-
-    # ── Step 5: Hybrid search (citation-first or standard) ───────────────
+    # ── Step 4–7: Run graph searches in parallel ─────────────────────────
     hybrid_config = (
         citation_first_edge_search(candidate_limit)
         if is_citation_heavy_query(query)
         else legal_hybrid_edge_search(candidate_limit)
     )
-    hybrid_result = await graphiti.search_(
-        query=enhanced,
-        group_ids=[LEGAL_GROUP],
-        config=hybrid_config,
-        driver=driver,
+    subject_query = rewritten.subject_query
+    norm_query = (
+        " ".join(rewritten.norm_candidates[:4]) if rewritten.norm_candidates else ""
     )
 
-    # ── Step 6: Dedicated node search for legal subjects ─────────────────
+    search_tasks: list[tuple[str, Any]] = [
+        (
+            "bm25_full",
+            graphiti.search_(
+                query=enhanced,
+                group_ids=[LEGAL_GROUP],
+                config=bm25_only_edge_search(candidate_limit),
+                driver=driver,
+            ),
+        ),
+        (
+            "bm25_keyword",
+            graphiti.search_(
+                query=keyword_enhanced,
+                group_ids=[LEGAL_GROUP],
+                config=bm25_only_edge_search(candidate_limit),
+                driver=driver,
+            ),
+        ),
+        (
+            "hybrid",
+            graphiti.search_(
+                query=enhanced,
+                group_ids=[LEGAL_GROUP],
+                config=hybrid_config,
+                driver=driver,
+            ),
+        ),
+    ]
+    if subject_query:
+        search_tasks.append(
+            (
+                "node",
+                graphiti.search_(
+                    query=subject_query,
+                    group_ids=[LEGAL_GROUP],
+                    config=node_bm25_search(candidate_limit),
+                    driver=driver,
+                ),
+            )
+        )
+    if norm_query:
+        search_tasks.append(
+            (
+                "norm",
+                graphiti.search_(
+                    query=norm_query,
+                    group_ids=[LEGAL_GROUP],
+                    config=bm25_only_edge_search(candidate_limit),
+                    driver=driver,
+                ),
+            )
+        )
+
+    search_results = await asyncio.gather(
+        *(task for _, task in search_tasks),
+        return_exceptions=True,
+    )
+    results_by_name: dict[str, Any] = {}
+    for (name, _), result in zip(search_tasks, search_results):
+        if isinstance(result, Exception):
+            logger.warning("Graph search '%s' failed: %s", name, result)
+            continue
+        results_by_name[name] = result
+
+    bm25_full = results_by_name.get("bm25_full")
+    bm25_keyword = results_by_name.get("bm25_keyword")
+    hybrid_result = results_by_name.get("hybrid")
+
     node_search_edges: list[tuple[str, dict[str, Any]]] = []
     node_search_nodes: list[tuple[str, dict[str, Any]]] = []
-
-    subject_query = rewritten.subject_query
-    if subject_query:
-        node_result = await graphiti.search_(
-            query=subject_query,
-            group_ids=[LEGAL_GROUP],
-            config=node_bm25_search(candidate_limit),
-            driver=driver,
-        )
+    node_result = results_by_name.get("node")
+    if node_result:
         node_search_edges = [
             (edge.uuid, _edge_to_hit(edge, 0.95))
             for edge in node_result.edges
@@ -263,16 +313,9 @@ async def search_legal_context(query: str, limit: int | None = None, history: li
             len(node_search_nodes),
         )
 
-    # ── Step 7: Also BM25-search for norm candidates from rewriter ───────
     norm_edges: list[tuple[str, dict[str, Any]]] = []
-    if rewritten.norm_candidates:
-        norm_query = " ".join(rewritten.norm_candidates[:4])
-        norm_result = await graphiti.search_(
-            query=norm_query,
-            group_ids=[LEGAL_GROUP],
-            config=bm25_only_edge_search(candidate_limit),
-            driver=driver,
-        )
+    norm_result = results_by_name.get("norm")
+    if norm_result:
         norm_edges = [
             (edge.uuid, _edge_to_hit(edge, 0.95))
             for edge in norm_result.edges
@@ -296,19 +339,29 @@ async def search_legal_context(query: str, limit: int | None = None, history: li
             if getattr(edge, "uuid", None)
         ]
 
-    ranked_lists: list[tuple[list[tuple[str, dict[str, Any]]], float]] = [
-        (to_edge_list(bm25_full, 0.9), settings.legal_search_bm25_weight),
-        (to_edge_list(bm25_keyword, 0.95), settings.legal_search_bm25_weight * 1.2),
-        (to_edge_list(hybrid_result, 0.8), 1.0),
-        (
+    ranked_lists: list[tuple[list[tuple[str, dict[str, Any]]], float]] = []
+    if bm25_full is not None:
+        ranked_lists.append(
+            (to_edge_list(bm25_full, 0.9), settings.legal_search_bm25_weight)
+        )
+    if bm25_keyword is not None:
+        ranked_lists.append(
+            (to_edge_list(bm25_keyword, 0.95), settings.legal_search_bm25_weight * 1.2)
+        )
+    if hybrid_result is not None:
+        ranked_lists.extend(
             [
-                (node.uuid, _node_to_hit(node, 0.7))
-                for node in hybrid_result.nodes
-                if getattr(node, "uuid", None)
-            ],
-            0.75,
-        ),
-    ]
+                (to_edge_list(hybrid_result, 0.8), 1.0),
+                (
+                    [
+                        (node.uuid, _node_to_hit(node, 0.7))
+                        for node in hybrid_result.nodes
+                        if getattr(node, "uuid", None)
+                    ],
+                    0.75,
+                ),
+            ]
+        )
 
     # Add node-search results with high weight (these are the lex specialis hits)
     if node_search_edges:

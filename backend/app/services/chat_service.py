@@ -1,3 +1,4 @@
+import asyncio
 import re
 
 from openai import AsyncOpenAI
@@ -229,13 +230,20 @@ async def generate_answer(
             + ", ".join(inferred_norms)
         )
 
-    # Run query rewriter to get predicted norms (used for context hints)
+    # Run query rewriter once; reuse result for retrieval and context hints.
     rewritten = await rewrite_query(search_query, history=request.history)
+    if inferred_norms:
+        merged = list(rewritten.norm_candidates)
+        for norm in inferred_norms:
+            if norm not in merged:
+                merged.append(norm)
+        rewritten.norm_candidates = merged[:8]
 
     context_hits = await search_legal_context(
         search_query,
         limit=settings.legal_search_limit,
         history=request.history,
+        rewritten=rewritten,
     )
 
     # Drop low-relevance graph hits; keep runtime/predicted statute fetches
@@ -267,7 +275,7 @@ async def generate_answer(
             )
         )
 
-    citations = await enrich_citations(citations)
+    citations = await enrich_citations(citations, max_items=6)
 
     context_block = ""
     for c in citations:
@@ -422,14 +430,17 @@ async def generate_answer(
     )
 
     if persist:
-        try:
-            await add_user_episode(
-                request.user_id,
-                f"Frage: {request.message}\nStil: {answer_style.value}\nAntwort-Zusammenfassung: {answer[:500]}",
-                label="chat_interaction",
-            )
-        except Exception:
-            pass
+        async def _store_user_episode() -> None:
+            try:
+                await add_user_episode(
+                    request.user_id,
+                    f"Frage: {request.message}\nStil: {answer_style.value}\nAntwort-Zusammenfassung: {answer[:500]}",
+                    label="chat_interaction",
+                )
+            except Exception:
+                pass
+
+        asyncio.create_task(_store_user_episode())
 
         await append_messages(
             session.id,

@@ -8,6 +8,7 @@ Two main entry points:
   retrieval quality is low.
 """
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -83,6 +84,40 @@ def _neighboring_paragraphs(para: str, law_code: str, distance: int = _NEIGHBOR_
     return neighbors
 
 
+async def _fetch_norm_hit(
+    para: str,
+    law_code: str,
+    *,
+    score: float,
+    prefix: str,
+    overlap: float,
+) -> dict[str, Any] | None:
+    try:
+        title, content, url, source_name = await fetch_statute_paragraph(para, law_code)
+        if not content or len(content.strip()) < 20:
+            return None
+
+        display_code = format_law_display_name(law_code)
+        reference = f"§ {para} {display_code}"
+        logger.info("Fetched predicted norm: %s → %d chars", reference, len(content))
+        return {
+            "fact": content,
+            "source_url": url,
+            "source": source_name,
+            "title": title or reference,
+            "law_reference": reference,
+            "episode_id": "",
+            "score": score,
+            "uuid": f"{prefix}-{reference}",
+            "_runtime": True,
+            "_predicted": True,
+            "_overlap": overlap,
+        }
+    except Exception as exc:
+        logger.debug("Failed to fetch predicted norm § %s %s: %s", para, law_code, exc)
+        return None
+
+
 async def fetch_predicted_norms(
     norm_candidates: list[str],
     limit: int = 12,
@@ -125,31 +160,21 @@ async def fetch_predicted_norms(
 
     # Fetch explicit norms first (highest priority), then neighbors if room remains
     hits: list[dict[str, Any]] = []
-    for para, law_code in targets[:limit]:
-        try:
-            title, content, url, source_name = await fetch_statute_paragraph(para, law_code)
-            if not content or len(content.strip()) < 20:
-                continue
-
-            display_code = format_law_display_name(law_code)
-            reference = f"§ {para} {display_code}"
-            hits.append({
-                "fact": content,
-                "source_url": url,
-                "source": source_name,
-                "title": title or reference,
-                "law_reference": reference,
-                "episode_id": "",
-                "score": 0.95,
-                "uuid": f"predicted-{reference}",
-                "_runtime": True,
-                "_predicted": True,
-                "_overlap": 0.7,
-            })
-            logger.info("Fetched predicted norm: %s → %d chars", reference, len(content))
-        except Exception as exc:
-            logger.debug("Failed to fetch predicted norm § %s %s: %s", para, law_code, exc)
-            continue
+    primary_results = await asyncio.gather(
+        *(
+            _fetch_norm_hit(
+                para,
+                law_code,
+                score=0.95,
+                prefix="predicted",
+                overlap=0.7,
+            )
+            for para, law_code in targets[:limit]
+        )
+    )
+    for hit in primary_results:
+        if hit:
+            hits.append(hit)
 
     if len(hits) >= limit:
         return hits[:limit]
@@ -159,30 +184,21 @@ async def fetch_predicted_norms(
         for para, code in expanded_targets
         if (para, code) not in targets
     ]
-    for para, law_code in neighbor_targets[: limit - len(hits)]:
-        try:
-            title, content, url, source_name = await fetch_statute_paragraph(para, law_code)
-            if not content or len(content.strip()) < 20:
-                continue
-
-            display_code = format_law_display_name(law_code)
-            reference = f"§ {para} {display_code}"
-            hits.append({
-                "fact": content,
-                "source_url": url,
-                "source": source_name,
-                "title": title or reference,
-                "law_reference": reference,
-                "episode_id": "",
-                "score": 0.88,
-                "uuid": f"predicted-neighbor-{reference}",
-                "_runtime": True,
-                "_predicted": True,
-                "_overlap": 0.5,
-            })
-        except Exception as exc:
-            logger.debug("Failed to fetch neighbor norm § %s %s: %s", para, law_code, exc)
-            continue
+    neighbor_results = await asyncio.gather(
+        *(
+            _fetch_norm_hit(
+                para,
+                law_code,
+                score=0.88,
+                prefix="predicted-neighbor",
+                overlap=0.5,
+            )
+            for para, law_code in neighbor_targets[: limit - len(hits)]
+        )
+    )
+    for hit in neighbor_results:
+        if hit:
+            hits.append(hit)
 
     return hits
 

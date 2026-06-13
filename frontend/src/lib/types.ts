@@ -56,22 +56,36 @@ export interface LegalForm {
 export interface ExtractedField {
   field_name: string;
   value: string;
-  box: number[] | null; // [top, left, width, height] as relative percentages (0.0 to 100.0)
+  box: number[] | number[][] | null; // Single box or list of boxes for multi-line
   confidence: number;
   is_pii?: boolean;
+  page?: number;
+}
+
+export interface WordBox {
+  text: string;
+  box: number[];
+  page?: number;
 }
 
 export interface DocumentAnalysis {
   fields: ExtractedField[];
   raw_text: string;
   preview_image_url: string | null;
+  preview_pages?: string[] | null;
+  preview_image_urls?: string[];
+  word_boxes?: WordBox[];
+  is_redacted?: boolean;
+  custom_prompt?: string;
 }
 
 export interface Attachment {
   name: string;
   content: string;
   file_type: string;
+  file_id?: string | null;
   analysis?: DocumentAnalysis | null;
+  isPending?: boolean;
 }
 
 export interface ChatMessage {

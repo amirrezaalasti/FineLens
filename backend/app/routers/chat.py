@@ -4,9 +4,12 @@ import json
 import fitz  # PyMuPDF
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from openai import AsyncOpenAI
+from pathlib import Path
 import pypdf
 
 from app.config import settings
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+UPLOAD_DIR = DATA_DIR / "uploads"
 from app.models.schemas import (
     Attachment,
     ChatRequest,
@@ -29,43 +32,59 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 SYSTEM_PROMPT = """Du bist ein präziser deutscher Rechtsdokumenten-Analysator.
-Deine Aufgabe ist es, das hochgeladene Dokument (z. B. Bußgeldbescheid, Anhörungsbogen, Zeugenfragebogen, Strafbefehl, Klageschrift, etc.) umfassend und detailgenau zu analysieren.
+Deine Aufgabe ist es, das hochgeladene Dokument (z. B. Bußgeldbescheid, Anhörungsbogen, Zeugenfragebogen, Strafbefehl, Klageschrift, BAföG-Bescheid, Rückforderungsbescheid, etc.) umfassend und detailgenau zu analysieren.
 Extrahiere JEDES relevante Detail und jede Schlüsselinformation als separates Feld in der Liste `fields`. Sei so gründlich und präzise wie möglich.
 
-Bitte suche gezielt nach folgenden Feldern und extrahiere sie, sofern sie im Dokument vorhanden sind:
-- Dokumententyp (z.B. "Bußgeldbescheid", "Anhörungsbogen", "Zeugenfragebogen", "Strafbefehl")
-- Aktenzeichen / Geschäftszeichen (z.B. "302.3492.2", "12 OWi 234/26")
-- Behörde / Absender (z.B. "Polizeipräsidium Berlin", "Zentrale Bußgeldstelle", "Landkreis Hannover")
-- Datum des Schreibens / Ausstellungsdatum (z.B. "12.06.2026")
-- Empfänger / Betroffene(r) (z.B. Name des Empfängers oder "Sehr geehrte(r) Verkehrsteilnehmer(in)")
-- Tatvorwurf / Verstoß (z.B. "Geschwindigkeitsüberschreitung um 18 km/h innerhalb geschlossener Ortschaften")
-- Tatzeit (Datum und Uhrzeit der Tat, z.B. "05.06.2026, 14:32 Uhr")
-- Tatort (z.B. "Hannover, Hildesheimer Straße, Höhe № 100, Rtg. Zentrum")
-- Fahrzeug (z.B. "PKW", "LKW")
-- Kennzeichen / Nummernschild (z.B. "H-XX 1234")
-- Zulässige Geschwindigkeit (z.B. "50 km/h")
-- Festgestellte Geschwindigkeit (z.B. "68 km/h")
-- Geschwindigkeitsüberschreitung (z.B. "18 km/h")
-- Toleranzabzug (z.B. "3 km/h")
-- Beweismittel (z.B. "Verkehrsüberwachungsanlage (Frontfoto), Zeuge")
-- Zeuge / Messbeamter (z.B. "POM Müller")
-- Geldbuße / Bußgeld (z.B. "80,00 EUR" oder "festgesetzt")
+Passe die Namen der extrahierten Felder flexibel an den Dokumententyp an. Nutze kurze, prägnante Feldnamen (keine langen Slashes wie "Aktenzeichen / Geschäftszeichen").
+
+Empfohlene Felder je nach Dokumententyp:
+
+1. Für alle Dokumente (Metadaten):
+- Dokumententyp (z.B. "Bußgeldbescheid", "Anhörungsbogen", "Strafbefehl", "Rückforderungsbescheid", "BAföG-Bescheid")
+- Aktenzeichen (z.B. "2026-BAF-004711", "302.3492.2")
+- Behörde (z.B. "Amt für Ausbildungsförderung", "Bußgeldstelle")
+- Datum (Ausstellungsdatum des Schreibens, z.B. "13.06.2026")
+- Empfänger (z.B. Name des Empfängers)
+- Rechtsgrundlage (z.B. "§ 20 Abs. 1 BAföG", "§ 24 StVG")
+
+2. Spezifisch für Bußgeldbescheide / Anhörungsbögen / Strafzettel (Verkehrsrecht / Ordnungswidrigkeiten):
+- Tatvorwurf (z.B. "Geschwindigkeitsüberschreitung...")
+- Tatzeit (z.B. "05.06.2026, 14:32 Uhr")
+- Tatort (z.B. "Hannover, Hildesheimer Straße...")
+- Fahrzeug (z.B. "PKW")
+- Kennzeichen (z.B. "H-XX 1234")
+- Geldbuße (z.B. "70,00 EUR")
 - Gebühren (z.B. "25,00 EUR")
 - Auslagen (z.B. "3,50 EUR")
-- Gesamtbetrag (z.B. "108,50 EUR")
-- Punkte in Flensburg (z.B. "1 Punkt" oder "keine")
+- Gesamtbetrag (z.B. "98,50 EUR")
+- Punkte (z.B. "1 Punkt" oder "keine")
 - Fahrverbot (z.B. "1 Monat" oder "keines")
-- Frist / Einspruchsfrist (z.B. "2 Wochen")
-- Rechtsgrundlage / Paragraphen (z.B. "§ 24 StVG, § 107 OWiG")
+- Beweismittel (z.B. "Frontfoto")
+- Zeuge (z.B. "POM Müller")
 
-Wenn das Dokument weitere spezifische Rechtswerte oder Metadaten enthält, füge sie ebenfalls als separate Felder hinzu. Extrahiere so viele Felder wie möglich, um dem Benutzer eine lückenlose Analyse zu bieten!
+3. Spezifisch für BAföG-Bescheide, Rückforderungsbescheide oder andere Rückforderungsverfahren (Verwaltungsrecht):
+- Rückforderungsgrund (z.B. "Einkommensanrechnung aus Erwerbstätigkeit")
+- Zeitraum (relevanter Rückforderungs- oder Bewilligungszeitraum, z.B. "Oktober 2024 bis Dezember 2024" oder "01.10.2024 bis 31.07.2025")
+- Rückforderungsbetrag (oder Gesamtbetrag, z.B. "1.560,00 EUR")
+
+4. Frist (für JEDES Dokument):
+- Frist (z.B. "2 Wochen", "1 Monat")
+
+WICHTIGE JURISTISCHE REGEL ZU FEHLENDE FRISTEN ODER RECHTSBEHELFSBELEHRUNGEN (Z. B. WIDERSPRUCHSBELEHRUNG):
+Ein deutscher Bescheid (wie BAföG-Bescheid, Rückforderungsbescheid, Bußgeldbescheid, etc.) ist ein Verwaltungsakt und muss zwingend eine Rechtsbehelfsbelehrung (Widerspruchsbelehrung oder Einspruchsbelehrung) enthalten, die die Frist nennt.
+- Wenn im Dokument KEINE Rechtsbehelfsbelehrung/Widerspruchsbelehrung und keine explizite Frist genannt wird, erfordert das deutsche Recht (§ 58 Abs. 2 VwGO) eine gesetzliche Frist von 1 Jahr statt der üblichen Frist von 1 Monat.
+- In diesem Fall MUSST du zwingend für das Feld "Frist" als Wert Folgendes angeben:
+  "1 Jahr (da Rechtsbehelfsbelehrung fehlt, § 58 Abs. 2 VwGO)"
+- Wenn eine Widerspruchsfrist/Einspruchsfrist genannt wird, extrahiere sie wie üblich (z. B. "1 Monat", "2 Wochen").
+- Setze für solche rechtlich hergeleiteten Werte die `box` auf null, da sie nicht direkt im Text stehen, sondern rechtlich abgeleitet sind.
+- Gib NIEMALS "nicht erwähnt", "keine" oder null für das Feld "Frist" an, wenn das Dokument ein Bescheid ist und die Rechtsbehelfsbelehrung fehlt! Trage immer die gesetzliche 1-Jahres-Frist nach § 58 Abs. 2 VwGO ein.
 
 Gib die extrahierten Informationen als valides JSON-Objekt mit folgender Struktur zurück:
 {
   "fields": [
     {
-      "field_name": "Name des Feldes", // z.B. "Tatort", "Beweismittel", "Aktenzeichen"
-      "value": "Wert des Feldes im Dokument", // Der exakte Textwert aus dem Dokument
+      "field_name": "Name des Feldes", // Verwende kurze Namen wie "Aktenzeichen", "Behörde", "Datum", "Tatvorwurf", "Rückforderungsgrund", "Frist", etc.
+      "value": "Wert des Feldes im Dokument", // Der exakte Textwert aus dem Dokument (oder der hergeleitete Frist-Wert)
       "box": [ymin, xmin, ymax, xmax], // Bounding Box Koordinaten als Integer im Bereich 0 bis 1000 (normalisiert auf die Bildhöhe/Bildbreite)
       "confidence": 0.95, // geschätztes Vertrauen zwischen 0.0 und 1.0
       "is_pii": true // true, wenn es sich um personenbezogene Daten handelt (z.B. Name des Empfängers, Anschrift/Adresse, Kennzeichen, Geburtsdatum, Telefon, E-Mail), ansonsten false
@@ -81,7 +100,7 @@ WICHTIG zu den Koordinaten in `box`:
 - ymax: Unterer Rand der Box (0-1000)
 - xmax: Rechter Rand der Box (0-1000)
 - Die Boxen müssen das Feld auf dem Bild genau umschließen.
-- Wenn das Dokument kein Bild ist oder keine Koordinaten bestimmt werden können, setze `box` auf null.
+- Wenn das Dokument kein Bild ist oder keine Koordinaten bestimmt werden können (z.B. bei rechtlich abgeleiteten Werten), setze `box` auf null.
 """
 
 
@@ -107,32 +126,124 @@ def _rect_to_box(page, rect) -> list[float]:
     return [top, left, width, height]
 
 
-def find_text_coordinates(page, value: str) -> list[float] | None:
+def find_text_coordinates(page, value: str) -> list[list[float]] | None:
     if not page or not value:
         return None
     val = value.strip()
     if not val:
         return None
 
-    val_clean = val.rstrip(".,;: ")
-    if not val_clean:
+    # Clean and split target value into words
+    def clean_word(w: str) -> str:
+        return "".join(c for c in w.lower() if c.isalnum())
+
+    def words_match(t_word: str, p_word: str) -> bool:
+        # Enforce exact match for numeric tokens or short words (length < 5)
+        is_numeric = any(c.isdigit() for c in t_word) or any(c.isdigit() for c in p_word)
+        allow_substring = not is_numeric and len(t_word) >= 5 and len(p_word) >= 5
+        
+        if allow_substring:
+            return t_word == p_word or t_word in p_word or p_word in t_word
+        else:
+            return t_word == p_word
+
+    target_words = [clean_word(w) for w in val.split()]
+    target_words = [w for w in target_words if w]
+    if not target_words:
         return None
 
-    # 1. Search for the cleaned exact value
-    rects = page.search_for(val_clean)
-    if rects:
-        return _rect_to_box(page, rects[0])
+    # Get all words from the PDF page
+    # Tuple format: (x0, y0, x1, y1, "word", block_no, line_no, word_no)
+    try:
+        page_words = page.get_text("words")
+    except Exception:
+        return None
 
-    # 2. Split by spaces/newlines and search for the first chunk of length >= 4
-    # E.g. date, record number, fine amount
-    chunks = [c.strip(".,;:()[] ") for c in val_clean.split()]
-    chunks = [c for c in chunks if len(c) >= 4]
-    for chunk in chunks:
-        rects = page.search_for(chunk)
+    if not page_words:
+        return None
+
+    # Find matching sequence of words
+    n_target = len(target_words)
+    best_match_indices = []
+
+    # 1. Contiguous matching
+    for i in range(len(page_words) - n_target + 1):
+        match = True
+        for j in range(n_target):
+            p_word = clean_word(page_words[i + j][4])
+            t_word = target_words[j]
+            if not words_match(t_word, p_word):
+                match = False
+                break
+        if match:
+            best_match_indices = list(range(i, i + n_target))
+            break
+
+    # 2. Window-based matching with small gaps (allow up to 3 skipped intermediate words, e.g. OCR/formatting linebreaks)
+    if not best_match_indices and n_target > 1:
+        max_window = n_target + 3
+        for i in range(len(page_words) - max_window + 1):
+            matches = []
+            curr_target_idx = 0
+            for k in range(max_window):
+                if i + k >= len(page_words):
+                    break
+                p_word = clean_word(page_words[i + k][4])
+                t_word = target_words[curr_target_idx]
+                if words_match(t_word, p_word):
+                    matches.append(i + k)
+                    curr_target_idx += 1
+                    if curr_target_idx == n_target:
+                        break
+            if len(matches) == n_target:
+                best_match_indices = matches
+                break
+
+    # 3. Fallback: If no sequence is found, search exact match or fallback to single search
+    if not best_match_indices:
+        val_clean = val.rstrip(".,;: ")
+        rects = page.search_for(val_clean)
         if rects:
-            return _rect_to_box(page, rects[0])
+            return [_rect_to_box(page, r) for r in rects[:1]]
+        
+        # Split and fallback to searching chunks
+        chunks = [c.strip(".,;:()[] ") for c in val_clean.split()]
+        chunks = [c for c in chunks if len(c) >= 4]
+        for chunk in chunks:
+            # Skip short numeric chunks in fallback to prevent matching unrelated numbers
+            if any(c.isdigit() for c in chunk) and len(chunk) < 5:
+                continue
+            rects = page.search_for(chunk)
+            if rects:
+                return [_rect_to_box(page, rects[0])]
+        return None
 
-    return None
+    # Group matched words by line_no
+    from collections import defaultdict
+    import fitz
+    
+    # Group by block_no and line_no to keep line segments distinct
+    lines = defaultdict(list)
+    for idx in best_match_indices:
+        word_tuple = page_words[idx]
+        block_no = word_tuple[5]
+        line_no = word_tuple[6]
+        lines[(block_no, line_no)].append(word_tuple)
+
+    boxes = []
+    # Sort lines by top coordinate of the first word to preserve reading order
+    sorted_keys = sorted(lines.keys(), key=lambda k: lines[k][0][1])
+    for key in sorted_keys:
+        word_list = lines[key]
+        x0 = min(w[0] for w in word_list)
+        y0 = min(w[1] for w in word_list)
+        x1 = max(w[2] for w in word_list)
+        y1 = max(w[3] for w in word_list)
+        
+        rect = fitz.Rect(x0, y0, x1, y1)
+        boxes.append(_rect_to_box(page, rect))
+
+    return boxes
 
 
 async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
@@ -143,8 +254,17 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
     if not file_bytes:
         return DocumentAnalysis(fields=[], raw_text="", preview_image_url=None)
 
+    # Save original file bytes for on-demand redaction later
+    if filename:
+        try:
+            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            (UPLOAD_DIR / filename).write_bytes(file_bytes)
+        except Exception as e_save:
+            print(f"Warnung: Datei {filename} konnte nicht gespeichert werden: {e_save}")
+
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     preview_image_url = None
+    preview_image_urls = []
     raw_text = ""
     is_vision = False
     image_input_url = None
@@ -157,6 +277,7 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
         if content_type.startswith("image/"):
             base64_image = base64.b64encode(file_bytes).decode("utf-8")
             preview_image_url = f"data:{content_type};base64,{base64_image}"
+            preview_image_urls = [preview_image_url]
             image_input_url = preview_image_url
             is_vision = True
 
@@ -171,14 +292,18 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                 for page in doc:
                     text_pages.append(page.get_text())
                 raw_text = "\n".join(text_pages).strip()
-
-                # Generate preview image of first page if document is not empty
+                
+                # Generate preview images for all pages
+                for p_idx in range(len(doc)):
+                    page = doc[p_idx]
+                    pix = page.get_pixmap(dpi=150)
+                    png_bytes = pix.tobytes("png")
+                    base64_img = base64.b64encode(png_bytes).decode("utf-8")
+                    preview_image_urls.append(f"data:image/png;base64,{base64_img}")
+                
                 if len(doc) > 0:
                     first_page = doc[0]
-                    pix = first_page.get_pixmap(dpi=150)
-                    png_bytes = pix.tobytes("png")
-                    base64_image = base64.b64encode(png_bytes).decode("utf-8")
-                    preview_image_url = f"data:image/png;base64,{base64_image}"
+                    preview_image_url = preview_image_urls[0]
                     image_input_url = preview_image_url
                     is_vision = True
             except Exception as e:
@@ -248,11 +373,18 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                 box = field.get("box")
                 value = field.get("value", "").strip()
                 field_box = None
-
-                # 1. Search text layer if PDF first page is available
-                if is_pdf and first_page and value:
-                    field_box = find_text_coordinates(first_page, value)
-
+                field_page = 0
+                
+                # 1. Search text layer if PDF is available (across all pages)
+                if is_pdf and doc and value:
+                    for p_idx in range(len(doc)):
+                        p_page = doc[p_idx]
+                        p_box = find_text_coordinates(p_page, value)
+                        if p_box:
+                            field_box = p_box
+                            field_page = p_idx
+                            break
+                
                 # 2. Fallback to OpenAI Vision coordinates if search failed or not a PDF
                 if not field_box and box and len(box) == 4:
                     try:
@@ -283,25 +415,86 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
                         box=field_box,
                         confidence=field.get("confidence", 1.0),
                         is_pii=bool(field.get("is_pii", False)),
+                        page=field_page
                     )
                 )
+                
+            # Extract word bounding boxes for interactive UI selection (across all pages)
+            word_boxes = []
+            if doc:
+                try:
+                    for p_idx in range(len(doc)):
+                        p_page = doc[p_idx]
+                        for w in p_page.get_text("words"):
+                            rect = fitz.Rect(w[0], w[1], w[2], w[3])
+                            box = _rect_to_box(p_page, rect)
+                            word_boxes.append({
+                                "text": w[4],
+                                "box": box,
+                                "page": p_idx
+                            })
+                except Exception as e_words:
+                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
+            elif first_page:
+                try:
+                    for w in first_page.get_text("words"):
+                        rect = fitz.Rect(w[0], w[1], w[2], w[3])
+                        box = _rect_to_box(first_page, rect)
+                        word_boxes.append({
+                            "text": w[4],
+                            "box": box,
+                            "page": 0
+                        })
+                except Exception as e_words:
+                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
 
             return DocumentAnalysis(
                 fields=extracted_fields,
                 raw_text=analysis_data.get("raw_text") or raw_text or response_content,
                 preview_image_url=preview_image_url,
+                preview_image_urls=preview_image_urls,
+                word_boxes=word_boxes
             )
 
         except Exception as e:
-            # Robust fallback in case OpenAI call or JSON parsing fails
             print(f"ERROR: Fehler bei der Dokumentenanalyse: {e}")
             import traceback
-
             traceback.print_exc()
+
+            word_boxes = []
+            if doc:
+                try:
+                    for p_idx in range(len(doc)):
+                        p_page = doc[p_idx]
+                        for w in p_page.get_text("words"):
+                            rect = fitz.Rect(w[0], w[1], w[2], w[3])
+                            box = _rect_to_box(p_page, rect)
+                            word_boxes.append({
+                                "text": w[4],
+                                "box": box,
+                                "page": p_idx
+                            })
+                except Exception as e_words:
+                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
+            elif first_page:
+                try:
+                    for w in first_page.get_text("words"):
+                        rect = fitz.Rect(w[0], w[1], w[2], w[3])
+                        box = _rect_to_box(first_page, rect)
+                        word_boxes.append({
+                            "text": w[4],
+                            "box": box,
+                            "page": 0
+                        })
+                except Exception as e_words:
+                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
+
             return DocumentAnalysis(
                 fields=[],
                 raw_text=raw_text or f"[Fehler bei der Dokumentenanalyse: {e}]",
                 preview_image_url=preview_image_url,
+                preview_image_urls=preview_image_urls,
+                word_boxes=word_boxes
             )
     finally:
         if doc:
@@ -315,12 +508,234 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
 @router.post("/upload", response_model=Attachment)
 async def upload_chat_file(file: UploadFile = File(...)) -> Attachment:
     analysis = await extract_file_content(file)
+    
+    # Redact initial content based on fields marked as is_pii by LLM
+    redacted_content = analysis.raw_text
+    if analysis.fields:
+        for field in analysis.fields:
+            if field.is_pii and field.value:
+                redacted_content = redacted_content.replace(field.value, "█████")
+                
     return Attachment(
         name=file.filename or "file",
-        content=analysis.raw_text,
+        content=redacted_content,
         file_type=file.content_type or "application/octet-stream",
         analysis=analysis,
     )
+
+
+from pydantic import BaseModel
+
+class RedactRequest(BaseModel):
+    filename: str
+    redactions: list
+
+
+class ApplyRedactionsRequest(BaseModel):
+    filename: str
+    redactions: list  # list of [top, left, width, height] or nested coordinates
+
+
+class ApplyRedactionsResponse(BaseModel):
+    redacted_text: str
+    preview_image_url: str | None = None
+    preview_image_urls: list[str] = []
+
+
+@router.post("/apply-redactions", response_model=ApplyRedactionsResponse)
+async def apply_redactions_endpoint(request: ApplyRedactionsRequest) -> ApplyRedactionsResponse:
+    import fitz
+    import base64
+    import io
+
+    filename = request.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename missing")
+        
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
+        )
+        
+    try:
+        file_bytes = file_path.read_bytes()
+    except Exception as e_read:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+        
+    doc = None
+    try:
+        is_pdf = filename.lower().endswith(".pdf")
+        if is_pdf:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+        else:
+            # Try converting image to PDF
+            ext = "png"
+            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+                ext = "jpeg"
+            img_doc = fitz.open(stream=file_bytes, filetype=ext)
+            pdf_bytes = img_doc.convert_to_pdf()
+            doc = fitz.open("pdf", pdf_bytes)
+            
+        if len(doc) > 0:
+            for box in request.redactions:
+                coords_list = box if (isinstance(box, list) and len(box) > 0 and isinstance(box[0], list)) else [box]
+                for coords in coords_list:
+                    if len(coords) >= 4:
+                        top, left, width, height = [float(v) for v in coords[:4]]
+                        page_idx = int(coords[4]) if len(coords) >= 5 else 0
+                        if page_idx < len(doc):
+                            page = doc[page_idx]
+                            pw = page.rect.width
+                            ph = page.rect.height
+                            
+                            x0 = (left / 100.0) * pw
+                            y0 = (top / 100.0) * ph
+                            x1 = x0 + (width / 100.0) * pw
+                            y1 = y0 + (height / 100.0) * ph
+                            
+                            rect = fitz.Rect(x0, y0, x1, y1)
+                            
+                            # Apply PDF redaction (structurally deletes text under it)
+                            try:
+                                page.add_redact_annot(rect, fill=(0, 0, 0))
+                                page.apply_redactions()
+                            except Exception as e_redact:
+                                print(f"Warnung bei add_redact_annot: {e_redact}")
+                            
+                            # Fallback visual blackout rectangle
+                            page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
+                        
+        # Save redacted PDF to memory and overwrite on disk
+        out_stream = io.BytesIO()
+        doc.save(out_stream, garbage=4, deflate=True)
+        redacted_bytes = out_stream.getvalue()
+        
+        try:
+            file_path.write_bytes(redacted_bytes)
+            print(f"Successfully overwrote {filename} with redacted version on disk.")
+        except Exception as e_write:
+            print(f"Warnung: Redigierte Version von {filename} konnte nicht auf Disk gespeichert werden: {e_write}")
+
+        # Extract text from redacted PDF
+        text_pages = []
+        for p in doc:
+            text_pages.append(p.get_text())
+        redacted_text = "\n".join(text_pages).strip()
+        
+        # Generate redacted preview images for all pages
+        preview_image_urls = []
+        for p_idx in range(len(doc)):
+            pix = doc[p_idx].get_pixmap(dpi=150)
+            png_bytes = pix.tobytes("png")
+            base64_image = base64.b64encode(png_bytes).decode("utf-8")
+            preview_image_urls.append(f"data:image/png;base64,{base64_image}")
+            
+        preview_image_url = preview_image_urls[0] if preview_image_urls else None
+            
+        return ApplyRedactionsResponse(
+            redacted_text=redacted_text,
+            preview_image_url=preview_image_url,
+            preview_image_urls=preview_image_urls
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Anwendung der Schwärzungen: {e}")
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+
+@router.post("/redact")
+async def redact_pdf(request: RedactRequest):
+    from fastapi.responses import StreamingResponse
+    import fitz
+    
+    filename = request.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename missing")
+        
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
+        )
+        
+    try:
+        file_bytes = file_path.read_bytes()
+    except Exception as e_read:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+        
+    doc = None
+    try:
+        # Check if PDF or image
+        is_pdf = filename.lower().endswith(".pdf")
+        if is_pdf:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+        else:
+            # Try converting image to PDF
+            ext = "png"
+            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+                ext = "jpeg"
+            img_doc = fitz.open(stream=file_bytes, filetype=ext)
+            pdf_bytes = img_doc.convert_to_pdf()
+            doc = fitz.open("pdf", pdf_bytes)
+            
+        if len(doc) > 0:
+            page = doc[0]
+            pw = page.rect.width
+            ph = page.rect.height
+            
+            for box in request.redactions:
+                # box can be a single list [top, left, width, height] or nested list of coordinates
+                coords_list = box if isinstance(box[0], list) else [box]
+                for coords in coords_list:
+                    if len(coords) == 4:
+                        top, left, width, height = [float(v) for v in coords]
+                        
+                        x0 = (left / 100.0) * pw
+                        y0 = (top / 100.0) * ph
+                        x1 = x0 + (width / 100.0) * pw
+                        y1 = y0 + (height / 100.0) * ph
+                        
+                        rect = fitz.Rect(x0, y0, x1, y1)
+                        
+                        # Apply PDF redaction (structurally deletes text)
+                        try:
+                            page.add_redact_annot(rect, fill=(0, 0, 0))
+                            page.apply_redactions()
+                        except Exception as e_redact:
+                            print(f"Warnung bei add_redact_annot: {e_redact}")
+                        
+                        # Fallback visual blackout rectangle
+                        page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
+                        
+        # Save redacted PDF to memory
+        out_stream = io.BytesIO()
+        doc.save(out_stream, garbage=4, deflate=True)
+        out_stream.seek(0)
+        
+        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+        redacted_filename = f"geschwaerzt_{base_name}.pdf"
+        
+        return StreamingResponse(
+            out_stream,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={redacted_filename}"}
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Fehler bei der PDF-Schwärzung: {e}")
+    finally:
+        if doc:
+            doc.close()
 
 
 @router.get("/sessions", response_model=list[ChatSessionSummary])

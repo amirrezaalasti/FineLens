@@ -1,0 +1,1715 @@
+﻿diff --git a/backend/app/models/schemas.py b/backend/app/models/schemas.py
+index b165428..8f10124 100644
+--- a/backend/app/models/schemas.py
++++ b/backend/app/models/schemas.py
+@@ -55,15 +55,18 @@ class Citation(BaseModel):
+ class ExtractedField(BaseModel):
+     field_name: str
+     value: str
+-    box: list[float] | None = None  # [top, left, width, height] as relative percentages (0.0 to 100.0)
++    box: list[float] | list[list[float]] | None = None  # Single box [top, left, width, height] or list of boxes for multi-line
+     confidence: float = 1.0
+     is_pii: bool = False
++    page: int = 0
+ 
+ 
+ class DocumentAnalysis(BaseModel):
+     fields: list[ExtractedField] = Field(default_factory=list)
+     raw_text: str = ""
+     preview_image_url: str | None = None  # Base64 data URL for display preview
++    preview_image_urls: list[str] = Field(default_factory=list)
++    word_boxes: list[dict[str, Any]] = Field(default_factory=list)
+ 
+ 
+ class Attachment(BaseModel):
+diff --git a/backend/app/routers/chat.py b/backend/app/routers/chat.py
+index cb4a80a..ec3adac 100644
+--- a/backend/app/routers/chat.py
++++ b/backend/app/routers/chat.py
+@@ -4,9 +4,12 @@ import json
+ import fitz  # PyMuPDF
+ from fastapi import APIRouter, HTTPException, UploadFile, File
+ from openai import AsyncOpenAI
++from pathlib import Path
+ import pypdf
+ 
+ from app.config import settings
++DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
++UPLOAD_DIR = DATA_DIR / "uploads"
+ from app.models.schemas import (
+     Attachment,
+     ChatRequest,
+@@ -24,43 +27,59 @@ router = APIRouter(prefix="/chat", tags=["chat"])
+ 
+ 
+ SYSTEM_PROMPT = """Du bist ein pr├ñziser deutscher Rechtsdokumenten-Analysator.
+-Deine Aufgabe ist es, das hochgeladene Dokument (z. B. Bu├ƒgeldbescheid, Anh├Ârungsbogen, Zeugenfragebogen, Strafbefehl, Klageschrift, etc.) umfassend und detailgenau zu analysieren.
++Deine Aufgabe ist es, das hochgeladene Dokument (z. B. Bu├ƒgeldbescheid, Anh├Ârungsbogen, Zeugenfragebogen, Strafbefehl, Klageschrift, BAf├ÂG-Bescheid, R├╝ckforderungsbescheid, etc.) umfassend und detailgenau zu analysieren.
+ Extrahiere JEDES relevante Detail und jede Schl├╝sselinformation als separates Feld in der Liste `fields`. Sei so gr├╝ndlich und pr├ñzise wie m├Âglich.
+ 
+-Bitte suche gezielt nach folgenden Feldern und extrahiere sie, sofern sie im Dokument vorhanden sind:
+-- Dokumententyp (z.B. "Bu├ƒgeldbescheid", "Anh├Ârungsbogen", "Zeugenfragebogen", "Strafbefehl")
+-- Aktenzeichen / Gesch├ñftszeichen (z.B. "302.3492.2", "12 OWi 234/26")
+-- Beh├Ârde / Absender (z.B. "Polizeipr├ñsidium Berlin", "Zentrale Bu├ƒgeldstelle", "Landkreis Hannover")
+-- Datum des Schreibens / Ausstellungsdatum (z.B. "12.06.2026")
+-- Empf├ñnger / Betroffene(r) (z.B. Name des Empf├ñngers oder "Sehr geehrte(r) Verkehrsteilnehmer(in)")
+-- Tatvorwurf / Versto├ƒ (z.B. "Geschwindigkeits├╝berschreitung um 18 km/h innerhalb geschlossener Ortschaften")
+-- Tatzeit (Datum und Uhrzeit der Tat, z.B. "05.06.2026, 14:32 Uhr")
+-- Tatort (z.B. "Hannover, Hildesheimer Stra├ƒe, H├Âhe Ôäû 100, Rtg. Zentrum")
+-- Fahrzeug (z.B. "PKW", "LKW")
+-- Kennzeichen / Nummernschild (z.B. "H-XX 1234")
+-- Zul├ñssige Geschwindigkeit (z.B. "50 km/h")
+-- Festgestellte Geschwindigkeit (z.B. "68 km/h")
+-- Geschwindigkeits├╝berschreitung (z.B. "18 km/h")
+-- Toleranzabzug (z.B. "3 km/h")
+-- Beweismittel (z.B. "Verkehrs├╝berwachungsanlage (Frontfoto), Zeuge")
+-- Zeuge / Messbeamter (z.B. "POM M├╝ller")
+-- Geldbu├ƒe / Bu├ƒgeld (z.B. "80,00 EUR" oder "festgesetzt")
++Passe die Namen der extrahierten Felder flexibel an den Dokumententyp an. Nutze kurze, pr├ñgnante Feldnamen (keine langen Slashes wie "Aktenzeichen / Gesch├ñftszeichen").
++
++Empfohlene Felder je nach Dokumententyp:
++
++1. F├╝r alle Dokumente (Metadaten):
++- Dokumententyp (z.B. "Bu├ƒgeldbescheid", "Anh├Ârungsbogen", "Strafbefehl", "R├╝ckforderungsbescheid", "BAf├ÂG-Bescheid")
++- Aktenzeichen (z.B. "2026-BAF-004711", "302.3492.2")
++- Beh├Ârde (z.B. "Amt f├╝r Ausbildungsf├Ârderung", "Bu├ƒgeldstelle")
++- Datum (Ausstellungsdatum des Schreibens, z.B. "13.06.2026")
++- Empf├ñnger (z.B. Name des Empf├ñngers)
++- Rechtsgrundlage (z.B. "┬º 20 Abs. 1 BAf├ÂG", "┬º 24 StVG")
++
++2. Spezifisch f├╝r Bu├ƒgeldbescheide / Anh├Ârungsb├Âgen / Strafzettel (Verkehrsrecht / Ordnungswidrigkeiten):
++- Tatvorwurf (z.B. "Geschwindigkeits├╝berschreitung...")
++- Tatzeit (z.B. "05.06.2026, 14:32 Uhr")
++- Tatort (z.B. "Hannover, Hildesheimer Stra├ƒe...")
++- Fahrzeug (z.B. "PKW")
++- Kennzeichen (z.B. "H-XX 1234")
++- Geldbu├ƒe (z.B. "70,00 EUR")
+ - Geb├╝hren (z.B. "25,00 EUR")
+ - Auslagen (z.B. "3,50 EUR")
+-- Gesamtbetrag (z.B. "108,50 EUR")
+-- Punkte in Flensburg (z.B. "1 Punkt" oder "keine")
++- Gesamtbetrag (z.B. "98,50 EUR")
++- Punkte (z.B. "1 Punkt" oder "keine")
+ - Fahrverbot (z.B. "1 Monat" oder "keines")
+-- Frist / Einspruchsfrist (z.B. "2 Wochen")
+-- Rechtsgrundlage / Paragraphen (z.B. "┬º 24 StVG, ┬º 107 OWiG")
+-
+-Wenn das Dokument weitere spezifische Rechtswerte oder Metadaten enth├ñlt, f├╝ge sie ebenfalls als separate Felder hinzu. Extrahiere so viele Felder wie m├Âglich, um dem Benutzer eine l├╝ckenlose Analyse zu bieten!
++- Beweismittel (z.B. "Frontfoto")
++- Zeuge (z.B. "POM M├╝ller")
++
++3. Spezifisch f├╝r BAf├ÂG-Bescheide, R├╝ckforderungsbescheide oder andere R├╝ckforderungsverfahren (Verwaltungsrecht):
++- R├╝ckforderungsgrund (z.B. "Einkommensanrechnung aus Erwerbst├ñtigkeit")
++- Zeitraum (relevanter R├╝ckforderungs- oder Bewilligungszeitraum, z.B. "Oktober 2024 bis Dezember 2024" oder "01.10.2024 bis 31.07.2025")
++- R├╝ckforderungsbetrag (oder Gesamtbetrag, z.B. "1.560,00 EUR")
++
++4. Frist (f├╝r JEDES Dokument):
++- Frist (z.B. "2 Wochen", "1 Monat")
++
++WICHTIGE JURISTISCHE REGEL ZU FEHLENDE FRISTEN ODER RECHTSBEHELFSBELEHRUNGEN (Z. B. WIDERSPRUCHSBELEHRUNG):
++Ein deutscher Bescheid (wie BAf├ÂG-Bescheid, R├╝ckforderungsbescheid, Bu├ƒgeldbescheid, etc.) ist ein Verwaltungsakt und muss zwingend eine Rechtsbehelfsbelehrung (Widerspruchsbelehrung oder Einspruchsbelehrung) enthalten, die die Frist nennt.
++- Wenn im Dokument KEINE Rechtsbehelfsbelehrung/Widerspruchsbelehrung und keine explizite Frist genannt wird, erfordert das deutsche Recht (┬º 58 Abs. 2 VwGO) eine gesetzliche Frist von 1 Jahr statt der ├╝blichen Frist von 1 Monat.
++- In diesem Fall MUSST du zwingend f├╝r das Feld "Frist" als Wert Folgendes angeben:
++  "1 Jahr (da Rechtsbehelfsbelehrung fehlt, ┬º 58 Abs. 2 VwGO)"
++- Wenn eine Widerspruchsfrist/Einspruchsfrist genannt wird, extrahiere sie wie ├╝blich (z. B. "1 Monat", "2 Wochen").
++- Setze f├╝r solche rechtlich hergeleiteten Werte die `box` auf null, da sie nicht direkt im Text stehen, sondern rechtlich abgeleitet sind.
++- Gib NIEMALS "nicht erw├ñhnt", "keine" oder null f├╝r das Feld "Frist" an, wenn das Dokument ein Bescheid ist und die Rechtsbehelfsbelehrung fehlt! Trage immer die gesetzliche 1-Jahres-Frist nach ┬º 58 Abs. 2 VwGO ein.
+ 
+ Gib die extrahierten Informationen als valides JSON-Objekt mit folgender Struktur zur├╝ck:
+ {
+   "fields": [
+     {
+-      "field_name": "Name des Feldes", // z.B. "Tatort", "Beweismittel", "Aktenzeichen"
+-      "value": "Wert des Feldes im Dokument", // Der exakte Textwert aus dem Dokument
++      "field_name": "Name des Feldes", // Verwende kurze Namen wie "Aktenzeichen", "Beh├Ârde", "Datum", "Tatvorwurf", "R├╝ckforderungsgrund", "Frist", etc.
++      "value": "Wert des Feldes im Dokument", // Der exakte Textwert aus dem Dokument (oder der hergeleitete Frist-Wert)
+       "box": [ymin, xmin, ymax, xmax], // Bounding Box Koordinaten als Integer im Bereich 0 bis 1000 (normalisiert auf die Bildh├Âhe/Bildbreite)
+       "confidence": 0.95, // gesch├ñtztes Vertrauen zwischen 0.0 und 1.0
+       "is_pii": true // true, wenn es sich um personenbezogene Daten handelt (z.B. Name des Empf├ñngers, Anschrift/Adresse, Kennzeichen, Geburtsdatum, Telefon, E-Mail), ansonsten false
+@@ -76,7 +95,7 @@ WICHTIG zu den Koordinaten in `box`:
+ - ymax: Unterer Rand der Box (0-1000)
+ - xmax: Rechter Rand der Box (0-1000)
+ - Die Boxen m├╝ssen das Feld auf dem Bild genau umschlie├ƒen.
+-- Wenn das Dokument kein Bild ist oder keine Koordinaten bestimmt werden k├Ânnen, setze `box` auf null.
++- Wenn das Dokument kein Bild ist oder keine Koordinaten bestimmt werden k├Ânnen (z.B. bei rechtlich abgeleiteten Werten), setze `box` auf null.
+ """
+ 
+ 
+@@ -102,32 +121,124 @@ def _rect_to_box(page, rect) -> list[float]:
+     return [top, left, width, height]
+ 
+ 
+-def find_text_coordinates(page, value: str) -> list[float] | None:
++def find_text_coordinates(page, value: str) -> list[list[float]] | None:
+     if not page or not value:
+         return None
+     val = value.strip()
+     if not val:
+         return None
++
++    # Clean and split target value into words
++    def clean_word(w: str) -> str:
++        return "".join(c for c in w.lower() if c.isalnum())
++
++    def words_match(t_word: str, p_word: str) -> bool:
++        # Enforce exact match for numeric tokens or short words (length < 5)
++        is_numeric = any(c.isdigit() for c in t_word) or any(c.isdigit() for c in p_word)
++        allow_substring = not is_numeric and len(t_word) >= 5 and len(p_word) >= 5
+         
+-    val_clean = val.rstrip(".,;: ")
+-    if not val_clean:
++        if allow_substring:
++            return t_word == p_word or t_word in p_word or p_word in t_word
++        else:
++            return t_word == p_word
++
++    target_words = [clean_word(w) for w in val.split()]
++    target_words = [w for w in target_words if w]
++    if not target_words:
+         return None
++
++    # Get all words from the PDF page
++    # Tuple format: (x0, y0, x1, y1, "word", block_no, line_no, word_no)
++    try:
++        page_words = page.get_text("words")
++    except Exception:
++        return None
++
++    if not page_words:
++        return None
++
++    # Find matching sequence of words
++    n_target = len(target_words)
++    best_match_indices = []
++
++    # 1. Contiguous matching
++    for i in range(len(page_words) - n_target + 1):
++        match = True
++        for j in range(n_target):
++            p_word = clean_word(page_words[i + j][4])
++            t_word = target_words[j]
++            if not words_match(t_word, p_word):
++                match = False
++                break
++        if match:
++            best_match_indices = list(range(i, i + n_target))
++            break
++
++    # 2. Window-based matching with small gaps (allow up to 3 skipped intermediate words, e.g. OCR/formatting linebreaks)
++    if not best_match_indices and n_target > 1:
++        max_window = n_target + 3
++        for i in range(len(page_words) - max_window + 1):
++            matches = []
++            curr_target_idx = 0
++            for k in range(max_window):
++                if i + k >= len(page_words):
++                    break
++                p_word = clean_word(page_words[i + k][4])
++                t_word = target_words[curr_target_idx]
++                if words_match(t_word, p_word):
++                    matches.append(i + k)
++                    curr_target_idx += 1
++                    if curr_target_idx == n_target:
++                        break
++            if len(matches) == n_target:
++                best_match_indices = matches
++                break
++
++    # 3. Fallback: If no sequence is found, search exact match or fallback to single search
++    if not best_match_indices:
++        val_clean = val.rstrip(".,;: ")
++        rects = page.search_for(val_clean)
++        if rects:
++            return [_rect_to_box(page, r) for r in rects[:1]]
+         
+-    # 1. Search for the cleaned exact value
+-    rects = page.search_for(val_clean)
+-    if rects:
+-        return _rect_to_box(page, rects[0])
++        # Split and fallback to searching chunks
++        chunks = [c.strip(".,;:()[] ") for c in val_clean.split()]
++        chunks = [c for c in chunks if len(c) >= 4]
++        for chunk in chunks:
++            # Skip short numeric chunks in fallback to prevent matching unrelated numbers
++            if any(c.isdigit() for c in chunk) and len(chunk) < 5:
++                continue
++            rects = page.search_for(chunk)
++            if rects:
++                return [_rect_to_box(page, rects[0])]
++        return None
++
++    # Group matched words by line_no
++    from collections import defaultdict
++    import fitz
++    
++    # Group by block_no and line_no to keep line segments distinct
++    lines = defaultdict(list)
++    for idx in best_match_indices:
++        word_tuple = page_words[idx]
++        block_no = word_tuple[5]
++        line_no = word_tuple[6]
++        lines[(block_no, line_no)].append(word_tuple)
++
++    boxes = []
++    # Sort lines by top coordinate of the first word to preserve reading order
++    sorted_keys = sorted(lines.keys(), key=lambda k: lines[k][0][1])
++    for key in sorted_keys:
++        word_list = lines[key]
++        x0 = min(w[0] for w in word_list)
++        y0 = min(w[1] for w in word_list)
++        x1 = max(w[2] for w in word_list)
++        y1 = max(w[3] for w in word_list)
+         
+-    # 2. Split by spaces/newlines and search for the first chunk of length >= 4
+-    # E.g. date, record number, fine amount
+-    chunks = [c.strip(".,;:()[] ") for c in val_clean.split()]
+-    chunks = [c for c in chunks if len(c) >= 4]
+-    for chunk in chunks:
+-        rects = page.search_for(chunk)
+-        if rects:
+-            return _rect_to_box(page, rects[0])
+-            
+-    return None
++        rect = fitz.Rect(x0, y0, x1, y1)
++        boxes.append(_rect_to_box(page, rect))
++
++    return boxes
+ 
+ 
+ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+@@ -138,8 +249,17 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+     if not file_bytes:
+         return DocumentAnalysis(fields=[], raw_text="", preview_image_url=None)
+ 
++    # Save original file bytes for on-demand redaction later
++    if filename:
++        try:
++            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
++            (UPLOAD_DIR / filename).write_bytes(file_bytes)
++        except Exception as e_save:
++            print(f"Warnung: Datei {filename} konnte nicht gespeichert werden: {e_save}")
++
+     client = AsyncOpenAI(api_key=settings.openai_api_key)
+     preview_image_url = None
++    preview_image_urls = []
+     raw_text = ""
+     is_vision = False
+     image_input_url = None
+@@ -152,6 +272,7 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+         if content_type.startswith("image/"):
+             base64_image = base64.b64encode(file_bytes).decode("utf-8")
+             preview_image_url = f"data:{content_type};base64,{base64_image}"
++            preview_image_urls = [preview_image_url]
+             image_input_url = preview_image_url
+             is_vision = True
+ 
+@@ -167,13 +288,17 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+                     text_pages.append(page.get_text())
+                 raw_text = "\n".join(text_pages).strip()
+                 
+-                # Generate preview image of first page if document is not empty
++                # Generate preview images for all pages
++                for p_idx in range(len(doc)):
++                    page = doc[p_idx]
++                    pix = page.get_pixmap(dpi=150)
++                    png_bytes = pix.tobytes("png")
++                    base64_img = base64.b64encode(png_bytes).decode("utf-8")
++                    preview_image_urls.append(f"data:image/png;base64,{base64_img}")
++                
+                 if len(doc) > 0:
+                     first_page = doc[0]
+-                    pix = first_page.get_pixmap(dpi=150)
+-                    png_bytes = pix.tobytes("png")
+-                    base64_image = base64.b64encode(png_bytes).decode("utf-8")
+-                    preview_image_url = f"data:image/png;base64,{base64_image}"
++                    preview_image_url = preview_image_urls[0]
+                     image_input_url = preview_image_url
+                     is_vision = True
+             except Exception as e:
+@@ -251,10 +376,17 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+                 box = field.get("box")
+                 value = field.get("value", "").strip()
+                 field_box = None
++                field_page = 0
+                 
+-                # 1. Search text layer if PDF first page is available
+-                if is_pdf and first_page and value:
+-                    field_box = find_text_coordinates(first_page, value)
++                # 1. Search text layer if PDF is available (across all pages)
++                if is_pdf and doc and value:
++                    for p_idx in range(len(doc)):
++                        p_page = doc[p_idx]
++                        p_box = find_text_coordinates(p_page, value)
++                        if p_box:
++                            field_box = p_box
++                            field_page = p_idx
++                            break
+                 
+                 # 2. Fallback to OpenAI Vision coordinates if search failed or not a PDF
+                 if not field_box and box and len(box) == 4:
+@@ -283,14 +415,46 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+                         value=field.get("value", ""),
+                         box=field_box,
+                         confidence=field.get("confidence", 1.0),
+-                        is_pii=bool(field.get("is_pii", False))
++                        is_pii=bool(field.get("is_pii", False)),
++                        page=field_page
+                     )
+                 )
+                 
++            # Extract word bounding boxes for interactive UI selection (across all pages)
++            word_boxes = []
++            if doc:
++                try:
++                    for p_idx in range(len(doc)):
++                        p_page = doc[p_idx]
++                        for w in p_page.get_text("words"):
++                            rect = fitz.Rect(w[0], w[1], w[2], w[3])
++                            box = _rect_to_box(p_page, rect)
++                            word_boxes.append({
++                                "text": w[4],
++                                "box": box,
++                                "page": p_idx
++                            })
++                except Exception as e_words:
++                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
++            elif first_page:
++                try:
++                    for w in first_page.get_text("words"):
++                        rect = fitz.Rect(w[0], w[1], w[2], w[3])
++                        box = _rect_to_box(first_page, rect)
++                        word_boxes.append({
++                            "text": w[4],
++                            "box": box,
++                            "page": 0
++                        })
++                except Exception as e_words:
++                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
++
+             return DocumentAnalysis(
+                 fields=extracted_fields,
+                 raw_text=analysis_data.get("raw_text") or raw_text or response_content,
+-                preview_image_url=preview_image_url
++                preview_image_url=preview_image_url,
++                preview_image_urls=preview_image_urls,
++                word_boxes=word_boxes
+             )
+ 
+         except Exception as e:
+@@ -298,10 +462,41 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+             print(f"ERROR: Fehler bei der Dokumentenanalyse: {e}")
+             import traceback
+             traceback.print_exc()
++
++            word_boxes = []
++            if doc:
++                try:
++                    for p_idx in range(len(doc)):
++                        p_page = doc[p_idx]
++                        for w in p_page.get_text("words"):
++                            rect = fitz.Rect(w[0], w[1], w[2], w[3])
++                            box = _rect_to_box(p_page, rect)
++                            word_boxes.append({
++                                "text": w[4],
++                                "box": box,
++                                "page": p_idx
++                            })
++                except Exception as e_words:
++                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
++            elif first_page:
++                try:
++                    for w in first_page.get_text("words"):
++                        rect = fitz.Rect(w[0], w[1], w[2], w[3])
++                        box = _rect_to_box(first_page, rect)
++                        word_boxes.append({
++                            "text": w[4],
++                            "box": box,
++                            "page": 0
++                        })
++                except Exception as e_words:
++                    print(f"Warnung: Fehler beim Extrahieren der Wort-Koordinaten: {e_words}")
++
+             return DocumentAnalysis(
+                 fields=[],
+                 raw_text=raw_text or f"[Fehler bei der Dokumentenanalyse: {e}]",
+-                preview_image_url=preview_image_url
++                preview_image_url=preview_image_url,
++                preview_image_urls=preview_image_urls,
++                word_boxes=word_boxes
+             )
+     finally:
+         if doc:
+@@ -315,14 +510,238 @@ async def extract_file_content(file: UploadFile) -> DocumentAnalysis:
+ @router.post("/upload", response_model=Attachment)
+ async def upload_chat_file(file: UploadFile = File(...)) -> Attachment:
+     analysis = await extract_file_content(file)
++    
++    # Redact initial content based on fields marked as is_pii by LLM
++    redacted_content = analysis.raw_text
++    if analysis.fields:
++        for field in analysis.fields:
++            if field.is_pii and field.value:
++                redacted_content = redacted_content.replace(field.value, "ÔûêÔûêÔûêÔûêÔûê")
++                
+     return Attachment(
+         name=file.filename or "file",
+-        content=analysis.raw_text,
++        content=redacted_content,
+         file_type=file.content_type or "application/octet-stream",
+         analysis=analysis
+     )
+ 
+ 
++from pydantic import BaseModel
++
++class RedactRequest(BaseModel):
++    filename: str
++    redactions: list
++
++
++class ApplyRedactionsRequest(BaseModel):
++    filename: str
++    redactions: list  # list of [top, left, width, height] or nested coordinates
++
++
++class ApplyRedactionsResponse(BaseModel):
++    redacted_text: str
++    preview_image_url: str | None = None
++    preview_image_urls: list[str] = []
++
++
++@router.post("/apply-redactions", response_model=ApplyRedactionsResponse)
++async def apply_redactions_endpoint(request: ApplyRedactionsRequest) -> ApplyRedactionsResponse:
++    import fitz
++    import base64
++    import io
++
++    filename = request.filename
++    if not filename:
++        raise HTTPException(status_code=400, detail="Filename missing")
++        
++    file_path = UPLOAD_DIR / filename
++    if not file_path.exists():
++        raise HTTPException(
++            status_code=404, 
++            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
++        )
++        
++    try:
++        file_bytes = file_path.read_bytes()
++    except Exception as e_read:
++        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
++        
++    doc = None
++    try:
++        is_pdf = filename.lower().endswith(".pdf")
++        if is_pdf:
++            doc = fitz.open(stream=file_bytes, filetype="pdf")
++        else:
++            # Try converting image to PDF
++            ext = "png"
++            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
++                ext = "jpeg"
++            img_doc = fitz.open(stream=file_bytes, filetype=ext)
++            pdf_bytes = img_doc.convert_to_pdf()
++            doc = fitz.open("pdf", pdf_bytes)
++            
++        if len(doc) > 0:
++            for box in request.redactions:
++                coords_list = box if (isinstance(box, list) and len(box) > 0 and isinstance(box[0], list)) else [box]
++                for coords in coords_list:
++                    if len(coords) >= 4:
++                        top, left, width, height = [float(v) for v in coords[:4]]
++                        page_idx = int(coords[4]) if len(coords) >= 5 else 0
++                        if page_idx < len(doc):
++                            page = doc[page_idx]
++                            pw = page.rect.width
++                            ph = page.rect.height
++                            
++                            x0 = (left / 100.0) * pw
++                            y0 = (top / 100.0) * ph
++                            x1 = x0 + (width / 100.0) * pw
++                            y1 = y0 + (height / 100.0) * ph
++                            
++                            rect = fitz.Rect(x0, y0, x1, y1)
++                            
++                            # Apply PDF redaction (structurally deletes text under it)
++                            try:
++                                page.add_redact_annot(rect, fill=(0, 0, 0))
++                                page.apply_redactions()
++                            except Exception as e_redact:
++                                print(f"Warnung bei add_redact_annot: {e_redact}")
++                            
++                            # Fallback visual blackout rectangle
++                            page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
++                        
++        # Save redacted PDF to memory and overwrite on disk
++        out_stream = io.BytesIO()
++        doc.save(out_stream, garbage=4, deflate=True)
++        redacted_bytes = out_stream.getvalue()
++        
++        try:
++            file_path.write_bytes(redacted_bytes)
++            print(f"Successfully overwrote {filename} with redacted version on disk.")
++        except Exception as e_write:
++            print(f"Warnung: Redigierte Version von {filename} konnte nicht auf Disk gespeichert werden: {e_write}")
++
++        # Extract text from redacted PDF
++        text_pages = []
++        for p in doc:
++            text_pages.append(p.get_text())
++        redacted_text = "\n".join(text_pages).strip()
++        
++        # Generate redacted preview images for all pages
++        preview_image_urls = []
++        for p_idx in range(len(doc)):
++            pix = doc[p_idx].get_pixmap(dpi=150)
++            png_bytes = pix.tobytes("png")
++            base64_image = base64.b64encode(png_bytes).decode("utf-8")
++            preview_image_urls.append(f"data:image/png;base64,{base64_image}")
++            
++        preview_image_url = preview_image_urls[0] if preview_image_urls else None
++            
++        return ApplyRedactionsResponse(
++            redacted_text=redacted_text,
++            preview_image_url=preview_image_url,
++            preview_image_urls=preview_image_urls
++        )
++    except Exception as e:
++        import traceback
++        traceback.print_exc()
++        raise HTTPException(status_code=500, detail=f"Fehler bei der Anwendung der Schw├ñrzungen: {e}")
++    finally:
++        if doc:
++            try:
++                doc.close()
++            except Exception:
++                pass
++
++
++@router.post("/redact")
++async def redact_pdf(request: RedactRequest):
++    from fastapi.responses import StreamingResponse
++    import fitz
++    
++    filename = request.filename
++    if not filename:
++        raise HTTPException(status_code=400, detail="Filename missing")
++        
++    file_path = UPLOAD_DIR / filename
++    if not file_path.exists():
++        raise HTTPException(
++            status_code=404, 
++            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
++        )
++        
++    try:
++        file_bytes = file_path.read_bytes()
++    except Exception as e_read:
++        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
++        
++    doc = None
++    try:
++        # Check if PDF or image
++        is_pdf = filename.lower().endswith(".pdf")
++        if is_pdf:
++            doc = fitz.open(stream=file_bytes, filetype="pdf")
++        else:
++            # Try converting image to PDF
++            ext = "png"
++            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
++                ext = "jpeg"
++            img_doc = fitz.open(stream=file_bytes, filetype=ext)
++            pdf_bytes = img_doc.convert_to_pdf()
++            doc = fitz.open("pdf", pdf_bytes)
++            
++        if len(doc) > 0:
++            page = doc[0]
++            pw = page.rect.width
++            ph = page.rect.height
++            
++            for box in request.redactions:
++                # box can be a single list [top, left, width, height] or nested list of coordinates
++                coords_list = box if isinstance(box[0], list) else [box]
++                for coords in coords_list:
++                    if len(coords) == 4:
++                        top, left, width, height = [float(v) for v in coords]
++                        
++                        x0 = (left / 100.0) * pw
++                        y0 = (top / 100.0) * ph
++                        x1 = x0 + (width / 100.0) * pw
++                        y1 = y0 + (height / 100.0) * ph
++                        
++                        rect = fitz.Rect(x0, y0, x1, y1)
++                        
++                        # Apply PDF redaction (structurally deletes text)
++                        try:
++                            page.add_redact_annot(rect, fill=(0, 0, 0))
++                            page.apply_redactions()
++                        except Exception as e_redact:
++                            print(f"Warnung bei add_redact_annot: {e_redact}")
++                        
++                        # Fallback visual blackout rectangle
++                        page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
++                        
++        # Save redacted PDF to memory
++        out_stream = io.BytesIO()
++        doc.save(out_stream, garbage=4, deflate=True)
++        out_stream.seek(0)
++        
++        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
++        redacted_filename = f"geschwaerzt_{base_name}.pdf"
++        
++        return StreamingResponse(
++            out_stream,
++            media_type="application/pdf",
++            headers={"Content-Disposition": f"attachment; filename={redacted_filename}"}
++        )
++    except Exception as e:
++        import traceback
++        traceback.print_exc()
++        raise HTTPException(status_code=500, detail=f"Fehler bei der PDF-Schw├ñrzung: {e}")
++    finally:
++        if doc:
++            doc.close()
++        if doc:
++            doc.close()
++
++
+ @router.get("/sessions", response_model=list[ChatSessionSummary])
+ async def get_chat_sessions(user_id: str = "default") -> list[ChatSessionSummary]:
+     return list_sessions(user_id)
+diff --git a/backend/app/services/query_router.py b/backend/app/services/query_router.py
+index 34e26fb..58c4079 100644
+--- a/backend/app/services/query_router.py
++++ b/backend/app/services/query_router.py
+@@ -64,7 +64,8 @@ Regeln:
+ 9. Pr├╝fe bei Bu├ƒgeldbescheiden stets die Fristen (i.d.R. 14 Tage Einspruchsfrist nach ┬º 67 OWiG) und m├Âgliche Verj├ñhrung (┬º 26 StVG).
+ 10. Weist der Sachverhalt auf einen Bu├ƒgeldbescheid hin, frage aktiv nach Aktenzeichen, Beh├Ârde und Zustelldatum (in der Antwortsprache).
+ 11. Generiere am Ende der Antwort exakt 2 bis 3 passende, kurze inhaltliche Nachfragen f├╝r den Nutzer in der Antwortsprache. Formatiere diese ZWINGEND unter der deutschen ├£berschrift "### M├Âgliche Anschlussfragen:" als Stichpunkte (-).
+-12. Wurde ein Dokument (Bu├ƒgeldbescheid, Bescheid, Vertrag) hochgeladen: Erw├ñhne am Ende kurz, dass passende Einspruchs-/Widerspruchsformulare im System bereitstehen (der Systemblock "### Passende Formulare" wird automatisch erg├ñnzt ÔÇö wiederhole die Liste nicht ausf├╝hrlich)."""
++12. Wurde ein Dokument (Bu├ƒgeldbescheid, Bescheid, Vertrag) hochgeladen: Erw├ñhne am Ende kurz, dass passende Einspruchs-/Widerspruchsformulare im System bereitstehen (der Systemblock "### Passende Formulare" wird automatisch erg├ñnzt ÔÇö wiederhole die Liste nicht ausf├╝hrlich).
++13. Wichtig zur Datensicherheit: Falls im Text des hochgeladenen Dokuments oder im Sachverhalt geschw├ñrzte Stellen (wie 'ÔûêÔûêÔûêÔûêÔûê' oder 'geschw├ñrzt') enthalten sind, wurden diese personenbezogenen Daten aus Datenschutzgr├╝nden dauerhaft entfernt. Du darfst diese geschw├ñrzten Informationen NIEMALS in deiner Antwort erraten, erw├ñhnen, rekonstruieren, erfinden oder dar├╝ber spekulieren. Behandle sie als inexistent und nenne sie unter keinen Umst├ñnden in deiner Antwort."""
+ 
+ 
+ GUTACHTEN_SYSTEM_PROMPT = """Du bist FineLens, ein juristischer Assistent f├╝r deutsches Recht. Du erstellst rechtliche Pr├╝fungen strikt im Gutachtenstil.
+@@ -94,7 +95,8 @@ Allgemeine Vorgaben:
+ - Zitiere Normen aus dem Kontext interaktiv: Nutze Markdown-Links z.B. [BGB ┬º 433](URL_AUS_KONTEXT) oder aufklappbare Bereiche: <details><summary>[n] Titel (Referenz)</summary><a href="URL">URL</a><br>Auszugstext...</details>
+ - Schlie├ƒe mit einem >-Hinweis (in der Antwortsprache) ab, dass dies keine rechtsverbindliche Beratung ist.
+ - Generiere GANZ AM ENDE der Antwort exakt 2 bis 3 passende, inhaltliche Nachfragen zum Fall in der Antwortsprache. Formatiere diese ZWINGEND unter der deutschen ├£berschrift "### M├Âgliche Anschlussfragen:" als Stichpunkte (-).
+-- Bei hochgeladenen Dokumenten: Verweise kurz auf verf├╝gbare Formulare (Einspruch, Akteneinsicht etc.) ÔÇö der Block "### Passende Formulare" wird vom System erg├ñnzt."""
++- Bei hochgeladenen Dokumenten: Verweise kurz auf verf├╝gbare Formulare (Einspruch, Akteneinsicht etc.) ÔÇö der Block "### Passende Formulare" wird vom System erg├ñnzt.
++- Wichtig zur Datensicherheit: Falls im Text des hochgeladenen Dokuments oder im Sachverhalt geschw├ñrzte Stellen (wie 'ÔûêÔûêÔûêÔûêÔûê' oder 'geschw├ñrzt') enthalten sind, wurden diese personenbezogenen Daten aus Datenschutzgr├╝nden dauerhaft entfernt. Du darfst diese geschw├ñrzten Informationen NIEMALS in deiner Antwort erraten, erw├ñhnen, rekonstruieren, erfinden oder dar├╝ber spekulieren. Behandle sie als inexistent und nenne sie unter keinen Umst├ñnden in deiner Antwort."""
+ 
+ 
+ def build_user_prompt(
+diff --git a/frontend/src/app/page.tsx b/frontend/src/app/page.tsx
+index 52a6aa8..fafd2e0 100644
+--- a/frontend/src/app/page.tsx
++++ b/frontend/src/app/page.tsx
+@@ -15,6 +15,7 @@ import {
+   deleteChatSession,
+   getHealth,
+   listChatSessions,
++  applyRedactions,
+ } from "@/lib/api";
+ import { useTranslation } from "@/i18n";
+ import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField } from "@/lib/types";
+@@ -51,11 +52,28 @@ export default function Home() {
+   const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
+     setSelectedAttachment(prev => {
+       if (!prev) return null;
++      
++      const originalRawText = prev.analysis?.raw_text || prev.content || "";
++      let redactedText = originalRawText;
++      
++      updatedFields.forEach(f => {
++        if (f.is_pii && f.value) {
++          const escapedVal = f.value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
++          try {
++            const regex = new RegExp(escapedVal, 'g');
++            redactedText = redactedText.replace(regex, 'ÔûêÔûêÔûêÔûêÔûê');
++          } catch (e) {
++            redactedText = redactedText.split(f.value).join('ÔûêÔûêÔûêÔûêÔûê');
++          }
++        }
++      });
++
+       const updated = {
+         ...prev,
++        content: redactedText,
+         analysis: prev.analysis
+           ? { ...prev.analysis, fields: updatedFields }
+-          : { fields: updatedFields, raw_text: "", preview_image_url: null }
++          : { fields: updatedFields, raw_text: originalRawText, preview_image_url: null }
+       };
+       setDraftAttachments(drafts =>
+         drafts.map(d => d.name === prev.name ? updated : d)
+@@ -169,6 +187,7 @@ export default function Home() {
+         {tab === "chat" && (
+           <div className="h-full min-h-0">
+             <ResizableChatLayout
++              isAnalysisActive={activeRightTab === "analysis"}
+               sidebar={
+                 <ChatSidebar
+                   sessions={sessions}
+@@ -233,6 +252,65 @@ export default function Home() {
+                           setActiveRightTab("citations");
+                         }}
+                         onUpdateAnalysis={handleUpdateAnalysis}
++                        onReleaseAttachment={async () => {
++                          if (!selectedAttachment) return;
++                          
++                          // Gather active redaction boxes coordinates
++                          const fields = selectedAttachment.analysis?.fields || [];
++                          const redactions: number[][] = [];
++                          fields.forEach(f => {
++                            if (f.is_pii && f.box) {
++                              const p = f.page ?? 0;
++                              if (Array.isArray(f.box[0])) {
++                                const list = f.box as number[][];
++                                list.forEach(boxCoords => {
++                                  redactions.push([...boxCoords, p]);
++                                });
++                              } else {
++                                redactions.push([...(f.box as number[]), p]);
++                              }
++                            }
++                          });
++
++                          try {
++                            const res = await applyRedactions(selectedAttachment.name, redactions);
++                            
++                            setSelectedAttachment(prev => {
++                              if (!prev) return null;
++                              
++                              const updated: Attachment = {
++                                ...prev,
++                                content: res.redacted_text,
++                                isPending: false,
++                                analysis: prev.analysis
++                                  ? {
++                                      ...prev.analysis,
++                                      raw_text: res.redacted_text,
++                                      preview_image_url: res.preview_image_url,
++                                      preview_image_urls: res.preview_image_urls,
++                                      // Clear coordinates and replace values of PII fields since they are now permanently redacted in the image.
++                                      fields: prev.analysis.fields.map(f => 
++                                        f.is_pii ? { ...f, box: null, value: "ÔûêÔûêÔûêÔûêÔûê" } : f
++                                      )
++                                    }
++                                  : {
++                                      fields: [],
++                                      raw_text: res.redacted_text,
++                                      preview_image_url: res.preview_image_url,
++                                      preview_image_urls: res.preview_image_urls,
++                                    }
++                              };
++                              
++                              setDraftAttachments(drafts =>
++                                drafts.map(d => d.name === prev.name ? updated : d)
++                              );
++                              return updated;
++                            });
++                          } catch (err) {
++                            console.error("Failed to apply redactions:", err);
++                            alert("Fehler beim Anwenden der Schw├ñrzungen auf der Originaldatei: " + (err instanceof Error ? err.message : String(err)));
++                          }
++                        }}
+                       />
+                     )}
+                   </div>
+diff --git a/frontend/src/components/ChatPanel.tsx b/frontend/src/components/ChatPanel.tsx
+index a2b1ef6..1379d69 100644
+--- a/frontend/src/components/ChatPanel.tsx
++++ b/frontend/src/components/ChatPanel.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { useEffect, useRef, useState } from "react";
+-import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File } from "lucide-react";
++import { Loader2, MessageSquare, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Info, Shield } from "lucide-react";
+ import { getChatSession, sendChat, uploadFile } from "@/lib/api";
+ import { useTranslation } from "@/i18n";
+ import type { ChatMessage, LegalForm, Attachment } from "@/lib/types";
+@@ -65,6 +65,7 @@ export function ChatPanel({
+     for (let i = 0; i < files.length; i++) {
+       try {
+         const att = await uploadFile(files[i]);
++        att.isPending = true;
+         newAttachments.push(att);
+       } catch (err) {
+         console.error("Failed to upload file:", err);
+@@ -470,7 +471,9 @@ export function ChatPanel({
+             {attachments.map((att, idx) => (
+               <div
+                 key={idx}
+-                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy"
++                className="flex items-center gap-2 rounded-xl bg-navy/5 border border-navy/10 px-3 py-1.5 text-xs text-navy cursor-pointer hover:bg-navy/10 transition-colors"
++                onClick={() => onAttachmentSelect?.(att)}
++                title="In Dokumenten-Analyse anzeigen"
+               >
+                 {att.file_type.startsWith("image/") ? (
+                   <FileImage className="h-3.5 w-3.5 text-navy/70" />
+@@ -482,10 +485,23 @@ export function ChatPanel({
+                 <span className="font-medium max-w-[150px] truncate" title={att.name}>
+                   {att.name}
+                 </span>
++                {att.isPending ? (
++                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
++                    Freigabe ausstehend
++                  </span>
++                ) : (
++                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-green-100 text-green-800 border border-green-200 gap-0.5 shrink-0">
++                    <Shield className="h-2.5 w-2.5" />
++                    Freigegeben
++                  </span>
++                )}
+                 <button
+                   type="button"
+-                  onClick={() => removeAttachment(idx)}
+-                  className="rounded-full p-0.5 hover:bg-navy/10 text-slate-400 hover:text-navy transition cursor-pointer"
++                  onClick={(e) => {
++                    e.stopPropagation();
++                    removeAttachment(idx);
++                  }}
++                  className="rounded-full p-0.5 hover:bg-navy/15 text-slate-400 hover:text-navy transition cursor-pointer shrink-0"
+                   title={t("common.remove")}
+                 >
+                   <X className="h-3 w-3" />
+@@ -503,6 +519,15 @@ export function ChatPanel({
+           </div>
+         )}
+ 
++        {attachments.some((att) => att.isPending) && (
++          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2 flex items-center gap-1.5 animate-pulse shrink-0">
++            <Info className="h-4 w-4 shrink-0" />
++            <span>
++              Bitte ├╝berpr├╝fen Sie die Schw├ñrzung der hochgeladenen Dokumente im rechten Panel, bevor Sie die Nachricht absenden.
++            </span>
++          </div>
++        )}
++
+         <form
+           onSubmit={(e) => {
+             e.preventDefault();
+@@ -518,14 +543,14 @@ export function ChatPanel({
+               className={`w-full rounded-xl border border-navy/15 bg-white pl-4 py-2.5 text-sm outline-none ring-gold/30 focus:ring-2 disabled:opacity-75 ${
+                 isSpeechSupported ? "pr-20" : "pr-12"
+               }`}
+-              disabled={loading || loadingSession || uploading}
++              disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
+             />
+             <div className="absolute right-2 flex items-center gap-1 z-10">
+               {/* File Upload Button */}
+               <button
+                 type="button"
+                 onClick={triggerFileInput}
+-                disabled={loading || loadingSession || uploading}
++                disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
+                 className="text-slate-400 hover:text-navy hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                 title={t("chat.uploadFile")}
+               >
+@@ -545,7 +570,7 @@ export function ChatPanel({
+                 <button
+                   type="button"
+                   onClick={toggleListening}
+-                  disabled={loading || loadingSession || uploading}
++                  disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
+                   className={`cursor-pointer p-1.5 rounded-lg transition-all duration-300 ${
+                     isListening
+                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
+@@ -564,7 +589,7 @@ export function ChatPanel({
+           </div>
+           <button
+             type="submit"
+-            disabled={loading || loadingSession || uploading || (!input.trim() && attachments.length === 0)}
++            disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending) || (!input.trim() && attachments.length === 0)}
+             className="flex items-center gap-2 rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-navy transition hover:bg-gold-light disabled:opacity-50"
+           >
+             <Send className="h-4 w-4" />
+diff --git a/frontend/src/components/DocumentAnalysisPanel.tsx b/frontend/src/components/DocumentAnalysisPanel.tsx
+index e5124ef..2ce2eb6 100644
+--- a/frontend/src/components/DocumentAnalysisPanel.tsx
++++ b/frontend/src/components/DocumentAnalysisPanel.tsx
+@@ -17,6 +17,7 @@ import {
+   Unlock,
+   Edit2,
+   X,
++  Download,
+ } from "lucide-react";
+ import type { Attachment, ExtractedField } from "@/lib/types";
+ 
+@@ -24,9 +25,10 @@ interface DocumentAnalysisPanelProps {
+   attachment: Attachment | null;
+   onClose?: () => void;
+   onUpdateAnalysis?: (fields: ExtractedField[]) => void;
++  onReleaseAttachment?: () => void;
+ }
+ 
+-export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }: DocumentAnalysisPanelProps) {
++export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis, onReleaseAttachment }: DocumentAnalysisPanelProps) {
+   const [activeTab, setActiveTab] = useState<"preview" | "redact_data" | "text">("redact_data");
+   const [copied, setCopied] = useState(false);
+   const [hoveredFieldIdx, setHoveredFieldIdx] = useState<number | null>(null);
+@@ -35,6 +37,10 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+   const [editingIdx, setEditingIdx] = useState<number | null>(null);
+   const [editValue, setEditValue] = useState("");
+ 
++  const [showPreview, setShowPreview] = useState(true);
++  const [showTable, setShowTable] = useState(true);
++  const [textViewMode, setTextViewMode] = useState<"original" | "redacted">("redacted");
++
+   useEffect(() => {
+     if (attachment?.analysis?.fields) {
+       setLocalFields(attachment.analysis.fields);
+@@ -45,6 +51,7 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+   }, [attachment]);
+ 
+   const handleToggleRedaction = (idx: number) => {
++    if (!attachment?.isPending) return;
+     const updated = localFields.map((f, i) =>
+       i === idx ? { ...f, is_pii: !f.is_pii } : f
+     );
+@@ -55,11 +62,13 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+   };
+ 
+   const handleStartEdit = (idx: number, currentVal: string) => {
++    if (!attachment?.isPending) return;
+     setEditingIdx(idx);
+     setEditValue(currentVal);
+   };
+ 
+   const handleSaveEdit = (idx: number) => {
++    if (!attachment?.isPending) return;
+     const updated = localFields.map((f, i) =>
+       i === idx ? { ...f, value: editValue } : f
+     );
+@@ -74,6 +83,55 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+     setEditingIdx(null);
+   };
+ 
++
++
++  const handleWordClick = (text: string, box: number[]) => {
++    if (!attachment?.isPending) return;
++    const clickPage = box[4] ?? 0;
++    
++    const findFieldIndex = () => {
++      return localFields.findIndex((f) => {
++        if (!f.box) return false;
++        if ((f.page ?? 0) !== clickPage) return false;
++        const boxes: number[][] = Array.isArray(f.box[0])
++          ? (f.box as number[][])
++          : [f.box as number[]];
++        return boxes.some(
++          (b) => Math.abs(b[0] - box[0]) < 0.1 && Math.abs(b[1] - box[1]) < 0.1
++        );
++      });
++    };
++
++    const fieldIdx = findFieldIndex();
++    let updated: ExtractedField[];
++
++    if (fieldIdx !== -1) {
++      const field = localFields[fieldIdx];
++      if (field.field_name === "Manuelle Schw├ñrzung") {
++        updated = localFields.filter((_, i) => i !== fieldIdx);
++      } else {
++        updated = localFields.map((f, i) =>
++          i === fieldIdx ? { ...f, is_pii: !f.is_pii } : f
++        );
++      }
++    } else {
++      const newField: ExtractedField = {
++        field_name: "Manuelle Schw├ñrzung",
++        value: text,
++        box: box.slice(0, 4),
++        is_pii: true,
++        confidence: 1.0,
++        page: clickPage,
++      };
++      updated = [...localFields, newField];
++    }
++
++    setLocalFields(updated);
++    if (onUpdateAnalysis) {
++      onUpdateAnalysis(updated);
++    }
++  };
++
+   if (!attachment) {
+     return (
+       <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-2xl shadow-sm">
+@@ -101,9 +159,13 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+   const fields = localFields;
+   const rawText = analysis?.raw_text || attachment.content || "";
+   const previewImage = analysis?.preview_image_url;
++  const previewImages = analysis?.preview_image_urls && analysis.preview_image_urls.length > 0
++    ? analysis.preview_image_urls
++    : (previewImage ? [previewImage] : []);
+ 
+   const handleCopyText = () => {
+-    navigator.clipboard.writeText(rawText);
++    const textToCopy = textViewMode === "original" ? rawText : (attachment.content || "");
++    navigator.clipboard.writeText(textToCopy);
+     setCopied(true);
+     setTimeout(() => setCopied(false), 2000);
+   };
+@@ -180,15 +242,17 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+       <div className="min-h-0 flex-1 flex flex-col p-4 overflow-hidden">
+         {activeTab === "preview" && (
+           <div className="space-y-3 h-full flex flex-col min-h-0">
+-            {previewImage ? (
+-              <div className="relative flex-1 min-h-0 flex flex-col items-center justify-start bg-slate-900/5 rounded-xl border border-navy/10 p-4 overflow-y-auto overflow-x-hidden">
+-                <div className="relative w-full max-w-full shadow-md rounded-lg overflow-hidden shrink-0">
+-                  <img
+-                    src={previewImage}
+-                    alt="Dokument Vorschau"
+-                    className="w-full h-auto block pointer-events-none select-none"
+-                  />
+-                </div>
++            {previewImages.length > 0 ? (
++              <div className="relative flex-1 min-h-0 flex flex-col gap-4 items-center justify-start bg-slate-900/5 rounded-xl border border-navy/10 p-4 overflow-y-auto overflow-x-hidden">
++                {previewImages.map((imgUrl, idx) => (
++                  <div key={idx} className="relative w-full max-w-[500px] shadow-md rounded-lg overflow-hidden shrink-0 border border-navy/10">
++                    <img
++                      src={imgUrl}
++                      alt={`Dokument Vorschau Seite ${idx + 1}`}
++                      className="w-full h-auto block pointer-events-none select-none"
++                    />
++                  </div>
++                ))}
+               </div>
+             ) : (
+               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-navy/15 rounded-xl text-slate-500">
+@@ -203,184 +267,334 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+         )}
+ 
+         {activeTab === "redact_data" && (
+-          <div className="space-y-4 h-full flex flex-col min-h-0">
+-            {/* Top Part: Redacted Preview */}
+-            {previewImage ? (
+-              <div className="relative h-[260px] sm:h-[300px] shrink-0 flex flex-col items-center justify-start bg-slate-900/5 rounded-xl border border-navy/10 p-3 overflow-y-auto overflow-x-hidden">
+-                <div className="relative w-full max-w-full shadow-md rounded-lg overflow-hidden shrink-0">
+-                  <img
+-                    src={previewImage}
+-                    alt="Geschw├ñrztes Dokument"
+-                    className="w-full h-auto block pointer-events-none select-none"
+-                  />
+-                  {/* Static solid black redaction box overlays for PII */}
+-                  {fields.map((field, idx) => {
+-                    if (!field.is_pii || !field.box || field.box.length !== 4) return null;
+-                    const [top, left, width, height] = field.box;
+-                    return (
+-                      <div
+-                        key={idx}
+-                        className="absolute bg-black select-none pointer-events-none rounded-[1px] shadow-[0_0_1px_rgba(0,0,0,0.8)] z-10"
+-                        style={{
+-                          top: `${top}%`,
+-                          left: `${left}%`,
+-                          width: `${width}%`,
+-                          height: `${height}%`,
+-                        }}
+-                        title="Geschw├ñrzte personenbezogene Daten"
+-                      />
+-                    );
+-                  })}
+-                </div>
+-              </div>
+-            ) : (
+-              <div className="h-[120px] flex flex-col items-center justify-center text-center p-4 border border-dashed border-navy/15 rounded-xl text-slate-500 shrink-0">
+-                <Info className="h-6 w-6 text-slate-300 mb-1" />
+-                <p className="text-xs font-semibold text-navy">Keine visuelle Vorschau verf├╝gbar</p>
++          <div className="flex flex-col h-full min-h-0 overflow-hidden">
++            {/* Control Bar for visibility toggles & download button */}
++            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-navy/10 pb-3 mb-3 shrink-0">
++              <div className="flex items-center gap-1.5">
++                <button
++                  onClick={() => setShowPreview(!showPreview)}
++                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ${
++                    showPreview
++                      ? "bg-navy/5 text-navy border-navy/20"
++                      : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
++                  }`}
++                >
++                  <Eye className="h-3.5 w-3.5" />
++                  Vorschau {showPreview ? "ausblenden" : "einblenden"}
++                </button>
++                <button
++                  onClick={() => setShowTable(!showTable)}
++                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ${
++                    showTable
++                      ? "bg-navy/5 text-navy border-navy/20"
++                      : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:bg-slate-50"
++                  }`}
++                >
++                  <List className="h-3.5 w-3.5" />
++                  Tabelle {showTable ? "ausblenden" : "einblenden"}
++                </button>
+               </div>
+-            )}
+-
+-            {/* Bottom Part: Schl├╝sseldaten Table */}
+-            <div className="flex-1 min-h-0 overflow-y-auto">
+-              {fields.length === 0 ? (
+-                <div className="text-center py-8 text-slate-400 text-xs">
+-                  Keine strukturierten Daten extrahiert.
+-                </div>
++              
++              {attachment.isPending ? (
++                <button
++                  onClick={onReleaseAttachment}
++                  className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg px-3 py-1.5 text-xs transition cursor-pointer shadow-sm animate-pulse"
++                  title="Wendet die Schw├ñrzungen an und gibt das Dokument zur Analyse frei."
++                >
++                  <Check className="h-3.5 w-3.5" />
++                  Schw├ñrzungen anwenden & freigeben
++                </button>
+               ) : (
+-                <div className="overflow-hidden rounded-xl border border-navy/8 bg-white shadow-sm">
+-                  <table className="w-full text-left border-collapse text-xs">
+-                    <thead>
+-                      <tr className="bg-navy/5 border-b border-navy/10 text-navy font-semibold">
+-                        <th className="px-3 py-2">Feld</th>
+-                        <th className="px-3 py-2">Wert</th>
+-                        <th className="px-3 py-2 text-right">Konfidenz</th>
+-                      </tr>
+-                    </thead>
+-                    <tbody>
+-                      {fields.map((field, idx) => {
+-                        const isHovered = hoveredFieldIdx === idx;
+-                        const isEditing = editingIdx === idx;
+-                        return (
+-                          <tr
+-                            key={idx}
+-                            onMouseEnter={() => setHoveredFieldIdx(idx)}
+-                            onMouseLeave={() => setHoveredFieldIdx(null)}
+-                            className={`border-b border-navy/5 transition-all duration-150 ${
+-                              isHovered ? "bg-gold/10 font-medium text-navy" : "hover:bg-slate-50 text-slate-700"
+-                            }`}
+-                          >
+-                            <td className="px-3 py-2.5 font-medium text-navy/95">
+-                              <div className="flex items-center gap-1.5">
+-                                <button
+-                                  onClick={() => handleToggleRedaction(idx)}
+-                                  className={`p-1 rounded hover:bg-navy/10 cursor-pointer transition shrink-0 ${
+-                                    field.is_pii ? "text-gold bg-gold/5" : "text-slate-300 hover:text-navy"
++                <div className="flex items-center gap-1.5 text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1 text-xs font-semibold select-none">
++                  <Check className="h-3.5 w-3.5" />
++                  Dokument freigegeben
++                </div>
++              )}
++            </div>
++
++            {/* Split layout content area */}
++            <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-4 overflow-hidden">
++              {/* Left/Top Part: Redacted Preview */}
++              {showPreview && (
++                previewImages.length > 0 ? (
++                  <div className={`min-h-[250px] md:min-h-0 relative flex flex-col gap-4 items-center justify-start bg-slate-900/5 rounded-xl border border-navy/10 p-3 overflow-y-auto overflow-x-hidden ${
++                    showTable ? "flex-1 md:w-1/2" : "w-full flex-1"
++                  }`}>
++                    {previewImages.map((imgUrl, pageIdx) => (
++                      <div key={pageIdx} className="relative w-full max-w-[500px] shadow-md rounded-lg overflow-hidden shrink-0 border border-navy/10">
++                        <img
++                          src={imgUrl}
++                          alt={`Geschw├ñrztes Dokument Seite ${pageIdx + 1}`}
++                          className="w-full h-auto block pointer-events-none select-none"
++                        />
++                        {/* Invisible interactive text selection / click-to-redact overlay */}
++                        {attachment.isPending && analysis?.word_boxes
++                          ?.filter((wb) => (wb.page ?? 0) === pageIdx)
++                          ?.map((wb, wIdx) => {
++                            const [top, left, width, height] = wb.box;
++                            return (
++                              <button
++                                key={`word-${pageIdx}-${wIdx}`}
++                                onClick={() => handleWordClick(wb.text, [...wb.box, pageIdx])}
++                                className="absolute text-transparent hover:bg-gold/25 select-none cursor-pointer z-20 border border-transparent hover:border-gold/40 rounded-[1px] transition-all duration-75 focus:outline-none"
++                                style={{
++                                  top: `${top}%`,
++                                  left: `${left}%`,
++                                  width: `${width}%`,
++                                  height: `${height}%`,
++                                }}
++                                title={`Klicken zum Schw├ñrzen: "${wb.text}"`}
++                              />
++                            );
++                          })}
++
++                        {/* Static solid black redaction box overlays for PII */}
++                        {fields
++                          .filter((field) => (field.page ?? 0) === pageIdx)
++                          .map((field, idx) => {
++                            if (!field.is_pii || !field.box) return null;
++                            
++                            // Normalize to a list of boxes (can be [top, left, width, height] or [[top, left, width, height], ...])
++                            const boxes: number[][] = Array.isArray(field.box[0])
++                              ? (field.box as number[][])
++                              : [field.box as number[]];
++
++                            return boxes.map((boxCoords, boxIdx) => {
++                              if (boxCoords.length !== 4) return null;
++                              const [top, left, width, height] = boxCoords;
++                              return (
++                                <div
++                                  key={`${idx}-${boxIdx}`}
++                                  className="absolute bg-black select-none pointer-events-none rounded-[1px] shadow-[0_0_1px_rgba(0,0,0,0.8)] z-10"
++                                  style={{
++                                    top: `${top}%`,
++                                    left: `${left}%`,
++                                    width: `${width}%`,
++                                    height: `${height}%`,
++                                  }}
++                                  title="Geschw├ñrzte personenbezogene Daten"
++                                />
++                              );
++                            });
++                          })}
++                      </div>
++                    ))}
++                  </div>
++                ) : (
++                  <div className={`flex flex-col items-center justify-center text-center p-4 border border-dashed border-navy/15 rounded-xl text-slate-500 min-h-[150px] md:min-h-0 ${
++                    showTable ? "flex-1 md:w-1/2" : "w-full flex-1"
++                  }`}>
++                    <Info className="h-6 w-6 text-slate-300 mb-1" />
++                    <p className="text-xs font-semibold text-navy">Keine visuelle Vorschau verf├╝gbar</p>
++                  </div>
++                )
++              )}
++
++              {/* Right/Bottom Part: Schl├╝sseldaten Table & Info */}
++              {showTable && (
++                <div className={`min-h-0 flex flex-col gap-3 ${
++                  showPreview ? "flex-1 md:w-1/2" : "w-full flex-1"
++                }`}>
++                  <div className="flex-1 min-h-0 overflow-y-auto">
++                    {fields.length === 0 ? (
++                      <div className="text-center py-8 text-slate-400 text-xs">
++                        Keine strukturierten Daten extrahiert.
++                      </div>
++                    ) : (
++                      <div className="overflow-hidden rounded-xl border border-navy/8 bg-white shadow-sm">
++                        <table className="w-full text-left border-collapse text-xs table-fixed">
++                          <thead>
++                            <tr className="bg-navy/5 border-b border-navy/10 text-navy font-semibold">
++                              <th className="px-3 py-2 w-[40%]">Feld</th>
++                              <th className="px-3 py-2 w-[60%]">Wert</th>
++                            </tr>
++                          </thead>
++                          <tbody>
++                            {fields.map((field, idx) => {
++                              const isHovered = hoveredFieldIdx === idx;
++                              const isEditing = editingIdx === idx;
++                              return (
++                                <tr
++                                  key={idx}
++                                  onMouseEnter={() => setHoveredFieldIdx(idx)}
++                                  onMouseLeave={() => setHoveredFieldIdx(null)}
++                                  className={`border-b border-navy/5 transition-all duration-150 ${
++                                    isHovered ? "bg-gold/10 font-medium text-navy" : "hover:bg-slate-50 text-slate-700"
+                                   }`}
+-                                  title={field.is_pii ? "Schw├ñrzung aufheben" : "Feld schw├ñrzen"}
+                                 >
+-                                  {field.is_pii ? (
+-                                    <Lock className="h-3.5 w-3.5 fill-gold/10" />
+-                                  ) : (
+-                                    <Unlock className="h-3.5 w-3.5" />
+-                                  )}
+-                                </button>
+-                                <span>{field.field_name}</span>
+-                                {field.is_pii && (
+-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black text-white text-[9px] font-bold uppercase tracking-wider select-none shrink-0" title="Personenbezogene Daten (geschw├ñrzt)">
+-                                    DSGVO
+-                                  </span>
+-                                )}
+-                              </div>
+-                            </td>
+-                            <td className="px-3 py-2.5 font-mono break-all max-w-[180px]">
+-                              {isEditing ? (
+-                                <div className="flex items-center gap-1">
+-                                  <input
+-                                    type="text"
+-                                    value={editValue}
+-                                    onChange={(e) => setEditValue(e.target.value)}
+-                                    onKeyDown={(e) => {
+-                                      if (e.key === "Enter") handleSaveEdit(idx);
+-                                      if (e.key === "Escape") handleCancelEdit();
+-                                    }}
+-                                    className="w-full bg-white border border-navy/30 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-gold font-mono text-navy"
+-                                    autoFocus
+-                                  />
+-                                  <button
+-                                    onClick={() => handleSaveEdit(idx)}
+-                                    className="p-1 text-green-600 hover:bg-green-50 rounded cursor-pointer shrink-0"
+-                                  >
+-                                    <Check className="h-3.5 w-3.5" />
+-                                  </button>
+-                                  <button
+-                                    onClick={handleCancelEdit}
+-                                    className="p-1 text-red-500 hover:bg-red-50 rounded cursor-pointer shrink-0"
+-                                  >
+-                                    <X className="h-3.5 w-3.5" />
+-                                  </button>
+-                                </div>
+-                              ) : (
+-                                <div className="flex items-center justify-between group gap-2">
+-                                  {field.is_pii ? (
+-                                    <span className="bg-slate-900 text-transparent select-none px-1 rounded hover:text-slate-800 hover:bg-navy/5 cursor-pointer transition duration-150 font-semibold" title="Klicken/Hovern zum Aufdecken">
+-                                      {field.value}
+-                                    </span>
+-                                  ) : (
+-                                    <span>{field.value}</span>
+-                                  )}
+-                                  <button
+-                                    onClick={() => handleStartEdit(idx, field.value)}
+-                                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-navy/5 text-slate-400 hover:text-navy cursor-pointer transition"
+-                                    title="Wert bearbeiten"
+-                                  >
+-                                    <Edit2 className="h-3 w-3" />
+-                                  </button>
+-                                </div>
+-                              )}
+-                            </td>
+-                            <td className="px-3 py-2.5 text-right shrink-0">
+-                              <div className="flex items-center justify-end gap-1.5">
+-                                <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden hidden sm:block">
+-                                  <div
+-                                    className={`h-full rounded-full ${
+-                                      field.confidence > 0.8
+-                                        ? "bg-green-500"
+-                                        : field.confidence > 0.5
+-                                        ? "bg-amber-500"
+-                                        : "bg-red-500"
+-                                    }`}
+-                                    style={{ width: `${field.confidence * 100}%` }}
+-                                  />
+-                                </div>
+-                                <span className="text-[10px] font-semibold text-slate-500">
+-                                  {Math.round(field.confidence * 100)}%
+-                                </span>
+-                              </div>
+-                            </td>
+-                          </tr>
+-                        );
+-                      })}
+-                    </tbody>
+-                  </table>
++                                  <td className="px-3 py-2.5 font-medium text-navy/95 min-w-0">
++                                    <div className="flex items-center gap-1.5 min-w-0">
++                                      <button
++                                        onClick={() => handleToggleRedaction(idx)}
++                                        disabled={!attachment.isPending}
++                                        className={`p-1 rounded shrink-0 transition ${
++                                          attachment.isPending ? "cursor-pointer hover:bg-navy/10" : "cursor-default opacity-60"
++                                        } ${
++                                          field.is_pii ? "text-gold bg-gold/5" : "text-slate-300 hover:text-navy"
++                                        }`}
++                                        title={
++                                          !attachment.isPending
++                                            ? (field.is_pii ? "Dauerhaft geschw├ñrzt" : "Nicht geschw├ñrzt")
++                                            : (field.is_pii ? "Schw├ñrzung aufheben" : "Feld schw├ñrzen")
++                                        }
++                                      >
++                                        {field.is_pii ? (
++                                          <Lock className="h-3.5 w-3.5 fill-gold/10" />
++                                        ) : (
++                                          <Unlock className="h-3.5 w-3.5" />
++                                        )}
++                                      </button>
++                                      <span className="break-words min-w-0 flex-1" title={field.field_name}>
++                                        {field.field_name}
++                                      </span>
++                                      {field.is_pii && (
++                                        <span 
++                                          className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider select-none shrink-0 ${
++                                            field.field_name === "Manuelle Schw├ñrzung" 
++                                              ? "bg-gold text-navy" 
++                                              : "bg-black text-white"
++                                          }`}
++                                          title={field.field_name === "Manuelle Schw├ñrzung" ? "Manuell geschw├ñrzt" : "Personenbezogene Daten (geschw├ñrzt)"}
++                                        >
++                                          {field.field_name === "Manuelle Schw├ñrzung" ? "Manuell" : "DSGVO"}
++                                        </span>
++                                      )}
++                                    </div>
++                                  </td>
++                                  <td className="px-3 py-2.5 font-mono break-words whitespace-pre-wrap">
++                                    {isEditing ? (
++                                      <div className="flex items-center gap-1">
++                                        <input
++                                          type="text"
++                                          value={editValue}
++                                          onChange={(e) => setEditValue(e.target.value)}
++                                          onKeyDown={(e) => {
++                                            if (e.key === "Enter") handleSaveEdit(idx);
++                                            if (e.key === "Escape") handleCancelEdit();
++                                          }}
++                                          className="w-full bg-white border border-navy/30 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-gold font-mono text-navy"
++                                          autoFocus
++                                        />
++                                        <button
++                                          onClick={() => handleSaveEdit(idx)}
++                                          className="p-1 text-green-600 hover:bg-green-50 rounded cursor-pointer shrink-0"
++                                        >
++                                          <Check className="h-3.5 w-3.5" />
++                                        </button>
++                                        <button
++                                          onClick={handleCancelEdit}
++                                          className="p-1 text-red-500 hover:bg-red-50 rounded cursor-pointer shrink-0"
++                                        >
++                                          <X className="h-3.5 w-3.5" />
++                                        </button>
++                                      </div>
++                                    ) : (
++                                      <div className="flex justify-between items-start group gap-2 min-w-0">
++                                        <div className="min-w-0 break-words whitespace-pre-wrap flex-1">
++                                          {field.is_pii ? (
++                                            attachment.isPending ? (
++                                              <span className="bg-slate-900 text-transparent select-none px-1 rounded hover:text-slate-800 hover:bg-navy/5 cursor-pointer transition duration-150 font-semibold" title="Klicken/Hovern zum Aufdecken">
++                                                {field.value}
++                                              </span>
++                                            ) : (
++                                              <span className="bg-black text-white px-1.5 py-0.5 rounded font-mono select-none" title="Dauerhaft geschw├ñrzt">
++                                                ÔûêÔûêÔûêÔûêÔûê
++                                              </span>
++                                            )
++                                          ) : (
++                                            <span>{field.value}</span>
++                                          )}
++                                        </div>
++                                        {attachment.isPending && (
++                                          field.field_name === "Manuelle Schw├ñrzung" ? (
++                                            <button
++                                              onClick={() => {
++                                                const updated = localFields.filter((_, i) => i !== idx);
++                                                setLocalFields(updated);
++                                                if (onUpdateAnalysis) onUpdateAnalysis(updated);
++                                              }}
++                                              className="p-1 rounded hover:bg-red-50 text-red-400 hover:text-red-600 cursor-pointer transition shrink-0"
++                                              title="Manuelle Schw├ñrzung l├Âschen"
++                                            >
++                                              <X className="h-3 w-3" />
++                                            </button>
++                                          ) : (
++                                            <button
++                                              onClick={() => handleStartEdit(idx, field.value)}
++                                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-navy/5 text-slate-400 hover:text-navy cursor-pointer transition shrink-0"
++                                              title="Wert bearbeiten"
++                                            >
++                                              <Edit2 className="h-3 w-3" />
++                                            </button>
++                                          )
++                                        )}
++                                      </div>
++                                    )}
++                                  </td>
++                                </tr>
++                              );
++                            })}
++                          </tbody>
++                        </table>
++                      </div>
++                    )}
++                  </div>
++ 
++                  {/* Redaction Info Label */}
++                  {previewImage && (
++                    <div className="rounded-lg bg-navy/5 border border-navy/10 p-2.5 text-[11px] text-navy/90 flex items-start gap-2 shrink-0">
++                      <Lock className="h-3.5 w-3.5 text-navy shrink-0 mt-0.5" />
++                      <span>
++                        {attachment.isPending ? (
++                          "Klicken Sie auf das Schloss-Symbol in der Tabelle, um Textstellen auf dem Dokument live zu schw├ñrzen oder freizugeben."
++                        ) : (
++                          "Dieses Dokument ist freigegeben. Die Schw├ñrzungen sind dauerhaft angewendet und k├Ânnen nicht mehr ge├ñndert werden."
++                        )}
++                      </span>
++                    </div>
++                  )}
+                 </div>
+               )}
+-            </div>
+ 
+-            {/* Redaction Info Label */}
+-            {previewImage && (
+-              <div className="rounded-lg bg-navy/5 border border-navy/10 p-2.5 text-[11px] text-navy/90 flex items-start gap-2 shrink-0">
+-                <Lock className="h-3.5 w-3.5 text-navy shrink-0 mt-0.5" />
+-                <span>
+-                  Klicken Sie auf das Schloss-Symbol in der Tabelle, um Textstellen auf dem Dokument oben live zu schw├ñrzen oder freizugeben.
+-                </span>
+-              </div>
+-            )}
++              {/* Both Hidden Placeholder */}
++              {!showPreview && !showTable && (
++                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-navy/15 rounded-xl text-slate-500">
++                  <Info className="h-8 w-8 text-slate-300 mb-2" />
++                  <p className="text-xs font-semibold text-navy">Vorschau und Tabelle ausgeblendet</p>
++                  <p className="text-[11px] text-slate-400 max-w-[240px] mt-0.5">
++                    Bitte aktivieren Sie mindestens eine Ansicht (Vorschau oder Tabelle) in der Steuerleiste oben.
++                  </p>
++                </div>
++              )}
++            </div>
+           </div>
+         )}
+ 
+         {activeTab === "text" && (
+-          <div className="relative h-full flex flex-col">
+-            <div className="absolute right-2 top-2 z-10">
++          <div className="relative h-full flex flex-col min-h-0">
++            <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
++              <div className="flex bg-navy/5 p-0.5 rounded-lg border border-navy/10">
++                <button
++                  onClick={() => setTextViewMode("original")}
++                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
++                    textViewMode === "original"
++                      ? "bg-white text-navy shadow-sm"
++                      : "text-slate-500 hover:text-navy hover:bg-white/40"
++                  }`}
++                >
++                  Originaler Text
++                </button>
++                <button
++                  onClick={() => setTextViewMode("redacted")}
++                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
++                    textViewMode === "redacted"
++                      ? "bg-white text-navy shadow-sm"
++                      : "text-slate-500 hover:text-navy hover:bg-white/40"
++                  }`}
++                >
++                  Modell-Sicht (Geschw├ñrzt)
++                </button>
++              </div>
+               <button
+                 onClick={handleCopyText}
+                 className="flex items-center gap-1 bg-white hover:bg-slate-100 border border-navy/10 rounded-lg px-2 py-1 text-[11px] font-medium text-navy transition cursor-pointer shadow-sm"
+@@ -399,7 +613,7 @@ export function DocumentAnalysisPanel({ attachment, onClose, onUpdateAnalysis }:
+               </button>
+             </div>
+             <pre className="flex-1 w-full bg-slate-50 border border-navy/10 rounded-xl p-4 text-xs font-mono text-slate-700 whitespace-pre-wrap leading-relaxed select-text overflow-auto">
+-              {rawText}
++              {textViewMode === "original" ? rawText : (attachment.content || "")}
+             </pre>
+           </div>
+         )}
+diff --git a/frontend/src/components/ResizableChatLayout.tsx b/frontend/src/components/ResizableChatLayout.tsx
+index 6d2fe3f..86d5652 100644
+--- a/frontend/src/components/ResizableChatLayout.tsx
++++ b/frontend/src/components/ResizableChatLayout.tsx
+@@ -26,6 +26,7 @@ interface ResizableChatLayoutProps {
+   sidebar: ReactNode;
+   chat: ReactNode;
+   citations: ReactNode;
++  isAnalysisActive?: boolean;
+ }
+ 
+ function loadWidths(): PanelWidths {
+@@ -90,9 +91,16 @@ function PanelResizer({ onDrag }: { onDrag: (delta: number) => void }) {
+   );
+ }
+ 
+-export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatLayoutProps) {
++export function ResizableChatLayout({
++  sidebar,
++  chat,
++  citations,
++  isAnalysisActive,
++}: ResizableChatLayoutProps) {
+   const [widths, setWidths] = useState<PanelWidths>(DEFAULT_WIDTHS);
+   const containerRef = useRef<HTMLDivElement>(null);
++  const lastNormalWidth = useRef(DEFAULT_WIDTHS.citations);
++  const isFirstMount = useRef(true);
+ 
+   useEffect(() => {
+     setWidths(loadWidths());
+@@ -102,6 +110,29 @@ export function ResizableChatLayout({ sidebar, chat, citations }: ResizableChatL
+     localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+   }, [widths]);
+ 
++  useEffect(() => {
++    if (isFirstMount.current) {
++      isFirstMount.current = false;
++      return;
++    }
++    if (isAnalysisActive) {
++      lastNormalWidth.current = widths.citations;
++      setWidths((prev) => {
++        const containerWidth = containerRef.current?.clientWidth ?? 1200;
++        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
++        const targetCitations = Math.min(Math.max(prev.citations, 750), maxCitations);
++        return { ...prev, citations: targetCitations };
++      });
++    } else {
++      setWidths((prev) => {
++        const containerWidth = containerRef.current?.clientWidth ?? 1200;
++        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
++        const targetCitations = Math.min(lastNormalWidth.current, maxCitations);
++        return { ...prev, citations: targetCitations };
++      });
++    }
++  }, [isAnalysisActive]);
++
+   const clampWidths = useCallback((next: PanelWidths): PanelWidths => {
+     const containerWidth = containerRef.current?.clientWidth ?? 1200;
+     const resizerSpace = 16;
+diff --git a/frontend/src/lib/api.ts b/frontend/src/lib/api.ts
+index cfa12dd..0daa72c 100644
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@ -124,3 +124,16 @@ export async function seedData() {
+     method: "POST",
+   });
+ }
++
++export async function applyRedactions(
++  filename: string,
++  redactions: number[][]
++): Promise<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }> {
++  return request<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }>(
++    "/chat/apply-redactions",
++    {
++      method: "POST",
++      body: JSON.stringify({ filename, redactions }),
++    }
++  );
++}
+diff --git a/frontend/src/lib/types.ts b/frontend/src/lib/types.ts
+index 6926d45..dd6a427 100644
+--- a/frontend/src/lib/types.ts
++++ b/frontend/src/lib/types.ts
+@@ -51,15 +51,24 @@ export interface LegalForm {
+ export interface ExtractedField {
+   field_name: string;
+   value: string;
+-  box: number[] | null; // [top, left, width, height] as relative percentages (0.0 to 100.0)
++  box: number[] | number[][] | null; // Single box or list of boxes for multi-line
+   confidence: number;
+   is_pii?: boolean;
++  page?: number;
++}
++
++export interface WordBox {
++  text: string;
++  box: number[];
++  page?: number;
+ }
+ 
+ export interface DocumentAnalysis {
+   fields: ExtractedField[];
+   raw_text: string;
+   preview_image_url: string | null;
++  preview_image_urls?: string[];
++  word_boxes?: WordBox[];
+ }
+ 
+ export interface Attachment {
+@@ -67,6 +76,7 @@ export interface Attachment {
+   content: string;
+   file_type: string;
+   analysis?: DocumentAnalysis | null;
++  isPending?: boolean;
+ }
+ 
+ export interface ChatMessage {

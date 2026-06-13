@@ -142,3 +142,16 @@ export async function seedData() {
     method: "POST",
   });
 }
+
+export async function applyRedactions(
+  filename: string,
+  redactions: number[][]
+): Promise<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }> {
+  return request<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }>(
+    "/chat/apply-redactions",
+    {
+      method: "POST",
+      body: JSON.stringify({ filename, redactions }),
+    }
+  );
+}

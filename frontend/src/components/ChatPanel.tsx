@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, MessageSquare, MessagesSquare, RefreshCw, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search } from "lucide-react";
+import { Loader2, MessageSquare, MessagesSquare, RefreshCw, Send, Mic, MicOff, Paperclip, X, FileText, FileImage, File, Shield, ScanLine, Search, Info } from "lucide-react";
 import { createChatSession, getChatSession, refreshBafogDemo, sendChat, uploadFile } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, LegalForm, Attachment, SourceViewPayload } from "@/lib/types";
@@ -39,6 +39,8 @@ interface ChatPanelProps {
   setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
   initialFollowUps?: InitialFollowUps | null;
   onInitialFollowUpsApplied?: () => void;
+  initialInput?: string;
+  onInitialInputApplied?: () => void;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -63,6 +65,8 @@ export function ChatPanel({
   setAttachments,
   initialFollowUps = null,
   onInitialFollowUpsApplied,
+  initialInput,
+  onInitialInputApplied,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -92,6 +96,16 @@ export function ChatPanel({
     if (!mq.matches) setInputEditable(true);
   }, []);
 
+  const onInitialInputAppliedRef = useRef(onInitialInputApplied);
+  onInitialInputAppliedRef.current = onInitialInputApplied;
+
+  useEffect(() => {
+    if (initialInput) {
+      setInput(initialInput);
+      onInitialInputAppliedRef.current?.();
+    }
+  }, [initialInput]);
+
   useEffect(() => {
     if (chatActive) return;
     inputRef.current?.blur();
@@ -106,6 +120,7 @@ export function ChatPanel({
       for (let i = 0; i < files.length; i++) {
         try {
           const att = await uploadFile(files[i]);
+          att.isPending = true;
           newAttachments.push(att);
         } catch (err) {
           console.error("Failed to upload file:", err);
@@ -128,7 +143,7 @@ export function ChatPanel({
     [onAttachmentSelect, setAttachments, t]
   );
 
-  const uploadDisabled = loading || loadingSession || uploading || refreshingSample;
+  const uploadDisabled = loading || loadingSession || uploading || refreshingSample || attachments.some((att) => att.isPending);
 
   const capture = useDocumentCapture({
     onFilesSelected: processFiles,
@@ -707,7 +722,9 @@ export function ChatPanel({
             {attachments.map((att, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2 rounded-xl bg-ink/5 border border-ink/10 px-3 py-1.5 text-xs text-ink"
+                className="flex items-center gap-2 rounded-xl bg-ink/5 border border-ink/10 px-3 py-1.5 text-xs text-ink cursor-pointer hover:bg-ink/10 transition-colors"
+                onClick={() => onAttachmentSelect?.(att)}
+                title="In Dokumenten-Analyse anzeigen"
               >
                 {att.file_type.startsWith("image/") ? (
                   <FileImage className="h-3.5 w-3.5 text-ink/70" />
@@ -719,10 +736,23 @@ export function ChatPanel({
                 <span className="font-medium max-w-[150px] truncate" title={att.name}>
                   {att.name}
                 </span>
+                {att.isPending ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                    Freigabe ausstehend
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-green-100 text-green-800 border border-green-200 gap-0.5 shrink-0">
+                    <Shield className="h-2.5 w-2.5" />
+                    Freigegeben
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => removeAttachment(idx)}
-                  className="rounded-full p-0.5 hover:bg-ink/10 text-slate-400 hover:text-ink transition cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeAttachment(idx);
+                  }}
+                  className="rounded-full p-0.5 hover:bg-ink/10 text-slate-400 hover:text-ink transition cursor-pointer shrink-0"
                   title={t("common.remove")}
                 >
                   <X className="h-3 w-3" />
@@ -737,6 +767,15 @@ export function ChatPanel({
           <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-pink" />
             <span>{t("chat.processingFile")}</span>
+          </div>
+        )}
+
+        {attachments.some((att) => att.isPending) && (
+          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2 flex items-center gap-1.5 animate-pulse shrink-0">
+            <Info className="h-4 w-4 shrink-0" />
+            <span>
+              Bitte überprüfen Sie die Schwärzung der hochgeladenen Dokumente im rechten Panel, bevor Sie die Nachricht absenden.
+            </span>
           </div>
         )}
 
@@ -766,7 +805,7 @@ export function ChatPanel({
               className={`w-full rounded-xl border border-ink/15 bg-white py-3 pl-3.5 text-base outline-none ring-pink/30 focus:ring-2 disabled:opacity-75 sm:py-2.5 sm:pl-4 sm:text-sm ${
                 isSpeechSupported ? "pr-[4.5rem] sm:pr-20" : "pr-11 sm:pr-12"
               }`}
-              disabled={loading || loadingSession || uploading}
+              disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
             />
             <div className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 sm:right-2 sm:gap-1">
               {/* File Upload Button */}
@@ -792,7 +831,7 @@ export function ChatPanel({
                 <button
                   type="button"
                   onClick={toggleListening}
-                  disabled={loading || loadingSession || uploading}
+                  disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending)}
                   className={`pointer-events-auto cursor-pointer rounded-lg p-2 transition-all duration-300 touch-manipulation sm:p-1.5 ${
                     isListening
                       ? "text-red-500 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse"
@@ -811,7 +850,7 @@ export function ChatPanel({
           </div>
           <button
             type="submit"
-            disabled={loading || loadingSession || uploading || (!input.trim() && attachments.length === 0)}
+            disabled={loading || loadingSession || uploading || attachments.some((att) => att.isPending) || (!input.trim() && attachments.length === 0)}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pink text-white transition hover:bg-pink-dark active:scale-95 disabled:opacity-50 touch-manipulation sm:h-auto sm:w-auto sm:gap-2 sm:px-4 sm:py-2.5"
           >
             <Send className="h-4 w-4" />

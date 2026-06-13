@@ -55,15 +55,21 @@ class Citation(BaseModel):
 class ExtractedField(BaseModel):
     field_name: str
     value: str
-    box: list[float] | None = None  # [top, left, width, height] as relative percentages (0.0 to 100.0)
+    box: list[list[float]] | list[float] | None = None  # Single box or list of boxes for multi-line
     confidence: float = 1.0
     is_pii: bool = False
+    page: int = 0
 
 
 class DocumentAnalysis(BaseModel):
     fields: list[ExtractedField] = Field(default_factory=list)
     raw_text: str = ""
     preview_image_url: str | None = None  # Base64 data URL for display preview
+    preview_pages: list[str] = Field(default_factory=list)
+    preview_image_urls: list[str] = Field(default_factory=list)
+    word_boxes: list[dict[str, Any]] = Field(default_factory=list)
+    is_redacted: bool = False
+    custom_prompt: str = ""
 
 
 class Attachment(BaseModel):
@@ -71,6 +77,7 @@ class Attachment(BaseModel):
     content: str
     file_type: str
     analysis: DocumentAnalysis | None = None
+    file_id: str | None = None
 
 
 class ChatMessage(BaseModel):

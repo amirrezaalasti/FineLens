@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Header, MobileBottomNav } from "@/components/Header";
 import type { MobileChatPanel } from "@/components/ResizableChatLayout";
 import { ChatPanel } from "@/components/ChatPanel";
-import { NewChatFlow, type NewChatAnalysisResult, type NewChatFlowResult } from "@/components/NewChatFlow";
+import { NewChatFlow, type NewChatFlowResult } from "@/components/NewChatFlow";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { CitationsPanel } from "@/components/CitationsPanel";
 import { ResizableChatLayout } from "@/components/ResizableChatLayout";
@@ -19,6 +19,7 @@ import {
   listChatSessions,
   seedBafogDemo,
   sendChat,
+  applyRedactions,
 } from "@/lib/api";
 import { useTranslation } from "@/i18n";
 import type { ChatMessage, ChatSessionSummary, Citation, LegalForm, Attachment, ExtractedField, SourceViewPayload } from "@/lib/types";
@@ -75,17 +76,26 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [activeRightTab, setActiveRightTab] = useState<"citations" | "analysis">("citations");
-  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(() =>
-    loadStoredJson<Attachment>(SELECTED_ATTACHMENT_KEY)
-  );
-  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>(() =>
-    loadStoredJson<Attachment[]>(DRAFT_ATTACHMENTS_KEY) ?? []
-  );
+  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
+  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>([]);
+  const [initialChatInput, setInitialChatInput] = useState("");
   const [mobileChatPanel, setMobileChatPanel] = useState<MobileChatPanel>("chat");
   const [chatInputFocused, setChatInputFocused] = useState(false);
   const [showNewChatFlow, setShowNewChatFlow] = useState(false);
   const [returnSessionId, setReturnSessionId] = useState<string | null>(null);
   const [initialFollowUps, setInitialFollowUps] = useState<InitialFollowUps | null>(null);
+
+  // Load sessionStorage state on client mount to avoid hydration mismatch
+  useEffect(() => {
+    const drafts = loadStoredJson<Attachment[]>(DRAFT_ATTACHMENTS_KEY);
+    if (drafts) {
+      setDraftAttachments(drafts);
+    }
+    const selected = loadStoredJson<Attachment>(SELECTED_ATTACHMENT_KEY);
+    if (selected) {
+      setSelectedAttachment(selected);
+    }
+  }, []);
 
   const handleTabChange = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -116,11 +126,28 @@ export default function Home() {
   const handleUpdateAnalysis = useCallback((updatedFields: ExtractedField[]) => {
     setSelectedAttachment(prev => {
       if (!prev) return null;
+      
+      const originalRawText = prev.analysis?.raw_text || prev.content || "";
+      let redactedText = originalRawText;
+      
+      updatedFields.forEach(f => {
+        if (f.is_pii && f.value) {
+          const escapedVal = f.value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          try {
+            const regex = new RegExp(escapedVal, 'g');
+            redactedText = redactedText.replace(regex, '█████');
+          } catch (e) {
+            redactedText = redactedText.split(f.value).join('█████');
+          }
+        }
+      });
+
       const updated = {
         ...prev,
+        content: redactedText,
         analysis: prev.analysis
           ? { ...prev.analysis, fields: updatedFields }
-          : { fields: updatedFields, raw_text: "", preview_image_url: null }
+          : { fields: updatedFields, raw_text: originalRawText, preview_image_url: null }
       };
       setDraftAttachments(drafts =>
         drafts.map(d => d.name === prev.name ? updated : d)
@@ -128,6 +155,66 @@ export default function Home() {
       return updated;
     });
   }, []);
+
+  const handleReleaseAttachment = useCallback(async () => {
+    if (!selectedAttachment) return;
+    
+    // Gather active redaction boxes coordinates
+    const fields = selectedAttachment.analysis?.fields || [];
+    const redactions: number[][] = [];
+    fields.forEach(f => {
+      if (f.is_pii && f.box) {
+        const p = f.page ?? 0;
+        if (Array.isArray(f.box[0])) {
+          const list = f.box as number[][];
+          list.forEach(boxCoords => {
+            redactions.push([...boxCoords, p]);
+          });
+        } else {
+          redactions.push([...(f.box as number[]), p]);
+        }
+      }
+    });
+
+    try {
+      const res = await applyRedactions(selectedAttachment.name, redactions);
+      
+      setSelectedAttachment(prev => {
+        if (!prev) return null;
+        
+        const updated: Attachment = {
+          ...prev,
+          content: res.redacted_text,
+          isPending: false,
+          analysis: prev.analysis
+            ? {
+                ...prev.analysis,
+                raw_text: res.redacted_text,
+                preview_image_url: res.preview_image_url,
+                preview_image_urls: res.preview_image_urls,
+                // Clear coordinates and replace values of PII fields since they are now permanently redacted in the image.
+                fields: prev.analysis.fields.map(f => 
+                  f.is_pii ? { ...f, box: null, value: "█████" } : f
+                )
+              }
+            : {
+                fields: [],
+                raw_text: res.redacted_text,
+                preview_image_url: res.preview_image_url,
+                preview_image_urls: res.preview_image_urls,
+              }
+        };
+        
+        setDraftAttachments(drafts =>
+          drafts.map(d => d.name === prev.name ? updated : d)
+        );
+        return updated;
+      });
+    } catch (err) {
+      console.error("Failed to apply redactions:", err);
+      alert("Fehler beim Anwenden der Schwärzungen auf der Originaldatei: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [selectedAttachment]);
 
   const refreshSessions = useCallback(async () => {
     const list = await listChatSessions(USER_ID);
@@ -206,104 +293,44 @@ export default function Home() {
     setReturnSessionId(null);
   };
 
-  const buildNewChatMessage = useCallback(
-    (result: NewChatFlowResult) => {
-      const eventDateLabel = result.eventDate
-        ? result.eventDate
-        : t("newChat.dateNotSpecified");
-      const yellowEnvelopeLabel =
-        result.yellowEnvelope === "yes"
-          ? t("newChat.envelopeYesLabel")
-          : result.yellowEnvelope === "no"
-            ? t("newChat.envelopeNoLabel")
-            : result.yellowEnvelope === "unknown"
-              ? t("newChat.envelopeUnknownLabel")
-              : t("newChat.envelopeNotSpecified");
 
-      if (!result.context.trim()) {
-        return t("newChat.initialMessageNoContext", {
-          fileName: result.attachment.name,
-          eventDate: eventDateLabel,
-          yellowEnvelope: yellowEnvelopeLabel,
-        });
-      }
-
-      if (result.eventDate) {
-        return t("newChat.initialMessage", {
-          fileName: result.attachment.name,
-          eventDate: eventDateLabel,
-          yellowEnvelope: yellowEnvelopeLabel,
-          context: result.context,
-        });
-      }
-
-      return t("newChat.initialMessageNoDate", {
-        fileName: result.attachment.name,
-        yellowEnvelope: yellowEnvelopeLabel,
-        context: result.context,
-      });
-    },
-    [t]
-  );
-
-  const handleNewChatAnalyze = useCallback(
-    async (result: NewChatFlowResult): Promise<NewChatAnalysisResult> => {
-      const session = await createChatSession(USER_ID);
-      const messageText = buildNewChatMessage(result);
-      const res = await sendChat(
-        messageText,
-        USER_ID,
-        [],
-        session.id,
-        [result.attachment],
-        locale
-      );
-
-      const sessionId = res.session_id || session.id;
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: res.answer,
-        citations: res.citations,
-        transparency_note: res.transparency_note,
-        suggested_forms: res.suggested_forms,
-      };
-
-      return {
-        sessionId,
-        attachment: result.attachment,
-        assistantMessage,
-        followUpQuestions: res.follow_up_questions || [],
-      };
-    },
-    [buildNewChatMessage, locale]
-  );
-
-  const handleNewChatComplete = async (analysis: NewChatAnalysisResult) => {
+  const handleNewChatComplete = async (result: NewChatFlowResult) => {
     setShowNewChatFlow(false);
     setReturnSessionId(null);
-    setActiveSessionId(analysis.sessionId);
-    setSelectedAttachment(analysis.attachment);
-    setDraftAttachments([]);
-    setActiveRightTab("citations");
+
+    // Create new session
+    const session = await createChatSession(USER_ID);
+    setActiveSessionId(session.id);
+    storeJson(SESSION_STORAGE_KEY, session.id);
+
+    // Setup pending attachment
+    const attachment = {
+      ...result.attachment,
+      isPending: true,
+    };
+    setDraftAttachments([attachment]);
+    setSelectedAttachment(attachment);
+
+    // Open analysis tab and citations area
+    setActiveRightTab("analysis");
     setMobileChatPanel("chat");
-    setCitations(analysis.assistantMessage.citations || []);
-    setTransparencyNote(analysis.assistantMessage.transparency_note || "");
-    if (analysis.assistantMessage.suggested_forms?.length) {
-      handleFormSuggest(analysis.assistantMessage.suggested_forms);
-    }
-    if (analysis.followUpQuestions.length > 0) {
-      setInitialFollowUps({
-        sessionId: analysis.sessionId,
-        questions: analysis.followUpQuestions,
-      });
-    } else {
-      setInitialFollowUps(null);
-    }
+
+    // Pre-populate input box
+    setInitialChatInput("");
+
+    setCitations([]);
+    setTransparencyNote("");
+    setInitialFollowUps(null);
+
     await refreshSessions();
   };
 
   const handleInitialFollowUpsApplied = useCallback(() => {
     setInitialFollowUps(null);
+  }, []);
+
+  const handleClearInitialChatInput = useCallback(() => {
+    setInitialChatInput("");
   }, []);
 
   const handleSelectSession = (sessionId: string) => {
@@ -388,10 +415,22 @@ export default function Home() {
       >
         {/* Keep chat mounted so uploads and draft state survive tab switches */}
         <div className={tab === "chat" ? "h-full min-h-0" : "hidden"} aria-hidden={tab !== "chat"}>
-          <ResizableChatLayout
-            mobilePanel={mobileChatPanel}
+          {selectedAttachment?.isPending ? (
+            <DocumentAnalysisPanel
+              attachment={selectedAttachment}
+              onClose={() => {
+                setSelectedAttachment(null);
+                setDraftAttachments([]);
+              }}
+              onUpdateAnalysis={handleUpdateAnalysis}
+              onReleaseAttachment={handleReleaseAttachment}
+            />
+          ) : (
+            <ResizableChatLayout
+              mobilePanel={mobileChatPanel}
             onMobilePanelChange={setMobileChatPanel}
             sourcesBadge={citations.length}
+            isAnalysisActive={activeRightTab === "analysis"}
             sidebar={
               <ChatSidebar
                 sessions={sessions}
@@ -406,7 +445,6 @@ export default function Home() {
             chat={
               showNewChatFlow ? (
                 <NewChatFlow
-                  onAnalyze={handleNewChatAnalyze}
                   onComplete={handleNewChatComplete}
                   onCancel={handleNewChatCancel}
                 />
@@ -435,6 +473,8 @@ export default function Home() {
                       : null
                   }
                   onInitialFollowUpsApplied={handleInitialFollowUpsApplied}
+                  initialInput={initialChatInput}
+                  onInitialInputApplied={handleClearInitialChatInput}
                 />
               )
             }
@@ -476,12 +516,14 @@ export default function Home() {
                         setActiveRightTab("citations");
                       }}
                       onUpdateAnalysis={handleUpdateAnalysis}
+                      onReleaseAttachment={handleReleaseAttachment}
                     />
                   )}
                 </div>
               </div>
             }
           />
+          )}
         </div>
 
         {tab === "profile" && (

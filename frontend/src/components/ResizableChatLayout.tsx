@@ -32,6 +32,7 @@ interface ResizableChatLayoutProps {
   mobilePanel?: MobileChatPanel;
   onMobilePanelChange?: (panel: MobileChatPanel) => void;
   sourcesBadge?: number;
+  isAnalysisActive?: boolean;
 }
 
 function loadWidths(): PanelWidths {
@@ -126,11 +127,14 @@ export function ResizableChatLayout({
   citations,
   mobilePanel: controlledPanel,
   onMobilePanelChange,
+  isAnalysisActive,
 }: ResizableChatLayoutProps) {
   const { t } = useTranslation();
   const [widths, setWidths] = useState<PanelWidths>(DEFAULT_WIDTHS);
   const [internalPanel, setInternalPanel] = useState<MobileChatPanel>("chat");
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastNormalWidth = useRef(DEFAULT_WIDTHS.citations);
+  const isFirstMount = useRef(true);
 
   const mobilePanel = controlledPanel ?? internalPanel;
   const setMobilePanel = onMobilePanelChange ?? setInternalPanel;
@@ -142,6 +146,29 @@ export function ResizableChatLayout({
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
   }, [widths]);
+
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    if (isAnalysisActive) {
+      lastNormalWidth.current = widths.citations;
+      setWidths((prev) => {
+        const containerWidth = containerRef.current?.clientWidth ?? 1200;
+        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
+        const targetCitations = Math.min(Math.max(prev.citations, 750), maxCitations);
+        return { ...prev, citations: targetCitations };
+      });
+    } else {
+      setWidths((prev) => {
+        const containerWidth = containerRef.current?.clientWidth ?? 1200;
+        const maxCitations = containerWidth - prev.sidebar - MIN_CHAT_WIDTH - 16;
+        const targetCitations = Math.min(lastNormalWidth.current, maxCitations);
+        return { ...prev, citations: targetCitations };
+      });
+    }
+  }, [isAnalysisActive]);
 
   const clampWidths = useCallback((next: PanelWidths): PanelWidths => {
     const containerWidth = containerRef.current?.clientWidth ?? 1200;

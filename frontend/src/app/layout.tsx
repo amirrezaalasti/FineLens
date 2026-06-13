@@ -16,7 +16,10 @@ export const metadata: Metadata = {
   description:
     "KI-gestützter juristischer Assistent mit Graphiti Knowledge Graph, Quellennachweisen und intelligenten Formularen.",
   icons: {
-    icon: "/logo-icon.png",
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/logo-icon.png", type: "image/png" },
+    ],
     apple: "/logo-icon.png",
   },
 };

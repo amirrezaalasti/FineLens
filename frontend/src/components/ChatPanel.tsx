@@ -43,6 +43,7 @@ interface ChatPanelProps {
   initialInput?: string;
   onInitialInputApplied?: () => void;
   autoSubmitInitialInput?: boolean;
+  onUploadFile?: (file: File) => void;
 }
 
 const STARTERS_KEY = "chat.starters";
@@ -70,6 +71,7 @@ export function ChatPanel({
   initialInput,
   onInitialInputApplied,
   autoSubmitInitialInput,
+  onUploadFile,
 }: ChatPanelProps) {
   const { t, tArray, locale, speechLocale } = useTranslation();
   const starters = tArray(STARTERS_KEY);
@@ -143,6 +145,7 @@ export function ChatPanel({
           const att = await uploadFile(files[i]);
           att.isPending = true;
           newAttachments.push(att);
+          onUploadFile?.(files[i]);
         } catch (err) {
           console.error("Failed to upload file:", err);
           alert(
@@ -161,7 +164,7 @@ export function ChatPanel({
         onAttachmentSelect(newAttachments[0]);
       }
     },
-    [onAttachmentSelect, setAttachments, t]
+    [onAttachmentSelect, setAttachments, t, onUploadFile]
   );
 
   const uploadDisabled = loading || loadingSession || uploading || refreshingSample || attachments.some((att) => att.isPending);

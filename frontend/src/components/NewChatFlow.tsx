@@ -51,6 +51,7 @@ interface NewChatFlowProps {
   onComplete: (result: NewChatFlowResult) => void;
   onCancel: () => void;
   onGoToRedaction: (att: Attachment) => void;
+  onUploadFile?: (file: File) => void;
 }
 
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -216,6 +217,7 @@ export function NewChatFlow({
   onComplete,
   onCancel,
   onGoToRedaction,
+  onUploadFile,
 }: NewChatFlowProps) {
   const { t, locale, speechLocale } = useTranslation();
   const [uploading, setUploading] = useState(false);
@@ -247,6 +249,7 @@ export function NewChatFlow({
       try {
         const att = await uploadFile(files[0]);
         setAttachment(att);
+        onUploadFile?.(files[0]);
       } catch (err) {
         alert(
           t("chat.uploadError", {
@@ -258,7 +261,7 @@ export function NewChatFlow({
         setUploading(false);
       }
     },
-    [t]
+    [t, onUploadFile]
   );
 
   const capture = useDocumentCapture({

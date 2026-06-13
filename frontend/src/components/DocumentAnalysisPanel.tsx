@@ -25,6 +25,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface DocumentAnalysisPanelProps {
   attachment: Attachment | null;
+  fileObj?: File | null;
   onClose?: () => void;
   onUpdateAnalysis?: (fields: ExtractedField[]) => void;
   onReleaseAttachment?: () => void;
@@ -32,6 +33,7 @@ interface DocumentAnalysisPanelProps {
 
 export function DocumentAnalysisPanel({
   attachment,
+  fileObj,
   onClose,
   onUpdateAnalysis,
   onReleaseAttachment,
@@ -155,15 +157,18 @@ export function DocumentAnalysisPanel({
         }
       });
 
+      const formData = new FormData();
+      if (fileObj) {
+        formData.append("file", fileObj);
+        formData.append("filename", fileObj.name);
+      } else {
+        formData.append("filename", attachment.name);
+      }
+      formData.append("redactions_json", JSON.stringify(redactions));
+
       const response = await fetch(`${API_BASE}/chat/redact`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          filename: attachment.name,
-          redactions: redactions,
-        }),
+        body: formData,
       });
 
       if (!response.ok) {

@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import fitz  # PyMuPDF
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from openai import AsyncOpenAI
 from pathlib import Path
 import pypdf
@@ -531,11 +531,6 @@ class RedactRequest(BaseModel):
     redactions: list
 
 
-class ApplyRedactionsRequest(BaseModel):
-    filename: str
-    redactions: list  # list of [top, left, width, height] or nested coordinates
-
-
 class ApplyRedactionsResponse(BaseModel):
     redacted_text: str
     preview_image_url: str | None = None
@@ -543,43 +538,65 @@ class ApplyRedactionsResponse(BaseModel):
 
 
 @router.post("/apply-redactions", response_model=ApplyRedactionsResponse)
-async def apply_redactions_endpoint(request: ApplyRedactionsRequest) -> ApplyRedactionsResponse:
+async def apply_redactions_endpoint(
+    filename: str = Form(None),
+    redactions_json: str = Form(...),
+    file: UploadFile = File(None)
+) -> ApplyRedactionsResponse:
     import fitz
     import base64
     import io
+    import json
 
-    filename = request.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="Filename missing")
-        
-    file_path = UPLOAD_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
-        )
-        
     try:
-        file_bytes = file_path.read_bytes()
-    except Exception as e_read:
-        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+        redactions = json.loads(redactions_json)
+    except Exception as e_json:
+        raise HTTPException(status_code=400, detail=f"Invalid redactions JSON: {e_json}")
+
+    file_bytes = None
+    resolved_filename = filename
+
+    if file:
+        file_bytes = await file.read()
+        resolved_filename = file.filename or filename or "document.pdf"
+    elif filename:
+        file_path = UPLOAD_DIR / filename
+        if not file_path.exists():
+            # Fallback to samples folder
+            samples_dir = Path(__file__).resolve().parents[2] / "samples"
+            fallback_path = samples_dir / filename
+            if not fallback_path.exists() and ("bafoeg" in filename.lower() or "bafög" in filename.lower()):
+                fallback_path = samples_dir / "BAfoeg_Rueckbescheid_Beispiel.pdf"
+            if fallback_path.exists():
+                file_path = fallback_path
+            else:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
+                )
+        try:
+            file_bytes = file_path.read_bytes()
+        except Exception as e_read:
+            raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+    else:
+        raise HTTPException(status_code=400, detail="Entweder Datei (file) oder Dateiname (filename) muss angegeben werden")
         
     doc = None
     try:
-        is_pdf = filename.lower().endswith(".pdf")
+        is_pdf = resolved_filename.lower().endswith(".pdf")
         if is_pdf:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
         else:
             # Try converting image to PDF
             ext = "png"
-            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+            if resolved_filename.lower().endswith(".jpg") or resolved_filename.lower().endswith(".jpeg"):
                 ext = "jpeg"
             img_doc = fitz.open(stream=file_bytes, filetype=ext)
             pdf_bytes = img_doc.convert_to_pdf()
             doc = fitz.open("pdf", pdf_bytes)
             
         if len(doc) > 0:
-            for box in request.redactions:
+            for box in redactions:
                 coords_list = box if (isinstance(box, list) and len(box) > 0 and isinstance(box[0], list)) else [box]
                 for coords in coords_list:
                     if len(coords) >= 4:
@@ -607,17 +624,19 @@ async def apply_redactions_endpoint(request: ApplyRedactionsRequest) -> ApplyRed
                             # Fallback visual blackout rectangle
                             page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
                         
-        # Save redacted PDF to memory and overwrite on disk
+        # Save redacted PDF to memory
         out_stream = io.BytesIO()
         doc.save(out_stream, garbage=4, deflate=True)
         redacted_bytes = out_stream.getvalue()
         
-        try:
-            file_path.write_bytes(redacted_bytes)
-            print(f"Successfully overwrote {filename} with redacted version on disk.")
-        except Exception as e_write:
-            print(f"Warnung: Redigierte Version von {filename} konnte nicht auf Disk gespeichert werden: {e_write}")
-
+        # Try writing to UPLOAD_DIR (fails silently on Vercel, works locally)
+        if not file:
+            try:
+                file_path.write_bytes(redacted_bytes)
+                print(f"Successfully overwrote {resolved_filename} with redacted version on disk.")
+            except Exception as e_write:
+                print(f"Warnung: Redigierte Version von {resolved_filename} konnte nicht auf Disk gespeichert werden: {e_write}")
+ 
         # Extract text from redacted PDF
         text_pages = []
         for p in doc:
@@ -652,76 +671,98 @@ async def apply_redactions_endpoint(request: ApplyRedactionsRequest) -> ApplyRed
 
 
 @router.post("/redact")
-async def redact_pdf(request: RedactRequest):
+async def redact_pdf(
+    filename: str = Form(None),
+    redactions_json: str = Form(...),
+    file: UploadFile = File(None)
+):
     from fastapi.responses import StreamingResponse
     import fitz
-    
-    filename = request.filename
-    if not filename:
-        raise HTTPException(status_code=400, detail="Filename missing")
-        
-    file_path = UPLOAD_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
-        )
-        
+    import io
+    import json
+
     try:
-        file_bytes = file_path.read_bytes()
-    except Exception as e_read:
-        raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+        redactions = json.loads(redactions_json)
+    except Exception as e_json:
+        raise HTTPException(status_code=400, detail=f"Invalid redactions JSON: {e_json}")
+
+    file_bytes = None
+    resolved_filename = filename
+
+    if file:
+        file_bytes = await file.read()
+        resolved_filename = file.filename or filename or "document.pdf"
+    elif filename:
+        file_path = UPLOAD_DIR / filename
+        if not file_path.exists():
+            # Fallback to samples folder
+            samples_dir = Path(__file__).resolve().parents[2] / "samples"
+            fallback_path = samples_dir / filename
+            if not fallback_path.exists() and ("bafoeg" in filename.lower() or "bafög" in filename.lower()):
+                fallback_path = samples_dir / "BAfoeg_Rueckbescheid_Beispiel.pdf"
+            if fallback_path.exists():
+                file_path = fallback_path
+            else:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Originaldatei '{filename}' wurde auf dem Server nicht gefunden. Bitte laden Sie das Dokument erneut hoch."
+                )
+        try:
+            file_bytes = file_path.read_bytes()
+        except Exception as e_read:
+            raise HTTPException(status_code=500, detail=f"Fehler beim Lesen der Originaldatei: {e_read}")
+    else:
+        raise HTTPException(status_code=400, detail="Entweder Datei (file) oder Dateiname (filename) muss angegeben werden")
         
     doc = None
     try:
-        # Check if PDF or image
-        is_pdf = filename.lower().endswith(".pdf")
+        is_pdf = resolved_filename.lower().endswith(".pdf")
         if is_pdf:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
         else:
             # Try converting image to PDF
             ext = "png"
-            if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
+            if resolved_filename.lower().endswith(".jpg") or resolved_filename.lower().endswith(".jpeg"):
                 ext = "jpeg"
             img_doc = fitz.open(stream=file_bytes, filetype=ext)
             pdf_bytes = img_doc.convert_to_pdf()
             doc = fitz.open("pdf", pdf_bytes)
             
         if len(doc) > 0:
-            page = doc[0]
-            pw = page.rect.width
-            ph = page.rect.height
-            
-            for box in request.redactions:
-                # box can be a single list [top, left, width, height] or nested list of coordinates
-                coords_list = box if isinstance(box[0], list) else [box]
+            for box in redactions:
+                coords_list = box if (isinstance(box, list) and len(box) > 0 and isinstance(box[0], list)) else [box]
                 for coords in coords_list:
-                    if len(coords) == 4:
-                        top, left, width, height = [float(v) for v in coords]
-                        
-                        x0 = (left / 100.0) * pw
-                        y0 = (top / 100.0) * ph
-                        x1 = x0 + (width / 100.0) * pw
-                        y1 = y0 + (height / 100.0) * ph
-                        
-                        rect = fitz.Rect(x0, y0, x1, y1)
-                        
-                        # Apply PDF redaction (structurally deletes text)
-                        try:
-                            page.add_redact_annot(rect, fill=(0, 0, 0))
-                            page.apply_redactions()
-                        except Exception as e_redact:
-                            print(f"Warnung bei add_redact_annot: {e_redact}")
-                        
-                        # Fallback visual blackout rectangle
-                        page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
-                        
+                    if len(coords) >= 4:
+                        top, left, width, height = [float(v) for v in coords[:4]]
+                        page_idx = int(coords[4]) if len(coords) >= 5 else 0
+                        if page_idx < len(doc):
+                            page = doc[page_idx]
+                            pw = page.rect.width
+                            ph = page.rect.height
+                            
+                            x0 = (left / 100.0) * pw
+                            y0 = (top / 100.0) * ph
+                            x1 = x0 + (width / 100.0) * pw
+                            y1 = y0 + (height / 100.0) * ph
+                            
+                            rect = fitz.Rect(x0, y0, x1, y1)
+                            
+                            # Apply PDF redaction (structurally deletes text)
+                            try:
+                                page.add_redact_annot(rect, fill=(0, 0, 0))
+                                page.apply_redactions()
+                            except Exception as e_redact:
+                                print(f"Warnung bei add_redact_annot: {e_redact}")
+                            
+                            # Fallback visual blackout rectangle
+                            page.draw_rect(rect, color=(0, 0, 0), fill=(0, 0, 0))
+                            
         # Save redacted PDF to memory
         out_stream = io.BytesIO()
         doc.save(out_stream, garbage=4, deflate=True)
         out_stream.seek(0)
         
-        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+        base_name = resolved_filename.rsplit(".", 1)[0] if "." in resolved_filename else resolved_filename
         redacted_filename = f"geschwaerzt_{base_name}.pdf"
         
         return StreamingResponse(

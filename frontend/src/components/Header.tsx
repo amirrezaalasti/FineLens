@@ -90,19 +90,9 @@ export function Header({ activeTab, onTabChange, graphConnected }: HeaderProps) 
     <header className="z-40 shrink-0 bg-white px-4 pb-3 pt-safe shadow-[0_2px_12px_rgba(0,0,0,0.04)] sm:px-6">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-center justify-between gap-3 py-3">
-          {activeTab === "chat" ? (
-            <div className="flex min-w-0 items-center gap-3">
-              <Logo showText={false} size="lg" className="shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xl font-bold leading-tight text-pink sm:text-2xl">FineLens</p>
-                <p className="mt-0.5 text-sm text-ink-muted">{t("header.greeting.hello")}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex min-w-0 shrink-0 items-center">
-              <Logo size="md" />
-            </div>
-          )}
+          <div className="flex min-w-0 shrink-0 items-center">
+            <Logo size="md" />
+          </div>
 
           <nav className="hidden items-center gap-1 md:flex">
             {TAB_IDS.map((tab) => {

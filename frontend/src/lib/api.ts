@@ -163,14 +163,25 @@ export async function seedData() {
 }
 
 export async function applyRedactions(
-  filename: string,
+  fileOrName: File | string,
   redactions: number[][]
 ): Promise<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }> {
-  return request<{ redacted_text: string; preview_image_url: string | null; preview_image_urls?: string[] }>(
-    "/chat/apply-redactions",
-    {
-      method: "POST",
-      body: JSON.stringify({ filename, redactions }),
-    }
-  );
+  const formData = new FormData();
+  if (typeof fileOrName === "string") {
+    formData.append("filename", fileOrName);
+  } else {
+    formData.append("file", fileOrName);
+    formData.append("filename", fileOrName.name);
+  }
+  formData.append("redactions_json", JSON.stringify(redactions));
+
+  const res = await fetch(`${API_BASE}/chat/apply-redactions`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `Redaction error ${res.status}`);
+  }
+  return res.json();
 }

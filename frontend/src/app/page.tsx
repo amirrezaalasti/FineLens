@@ -99,6 +99,11 @@ export default function Home() {
   const [newChatYellowEnvelope, setNewChatYellowEnvelope] = useState<YellowEnvelopeAnswer | null>(null);
   const [newChatContext, setNewChatContext] = useState("");
 
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
+  const handleUploadFile = useCallback((file: File) => {
+    setUploadedFiles(prev => ({ ...prev, [file.name]: file }));
+  }, []);
+
   // Load sessionStorage state on client mount to avoid hydration mismatch
   useEffect(() => {
     const drafts = loadStoredJson<Attachment[]>(DRAFT_ATTACHMENTS_KEY);
@@ -191,7 +196,8 @@ export default function Home() {
     });
 
     try {
-      const res = await applyRedactions(selectedAttachment.name, redactions);
+      const fileObj = uploadedFiles[selectedAttachment.name];
+      const res = await applyRedactions(fileObj || selectedAttachment.name, redactions);
       
       setSelectedAttachment(prev => {
         if (!prev) return null;
@@ -230,7 +236,7 @@ export default function Home() {
       console.error("Failed to apply redactions:", err);
       alert("Fehler beim Anwenden der Schwärzungen auf der Originaldatei: " + (err instanceof Error ? err.message : String(err)));
     }
-  }, [selectedAttachment]);
+  }, [selectedAttachment, uploadedFiles]);
 
   const refreshSessions = useCallback(async () => {
     const list = await listChatSessions(USER_ID);
@@ -505,6 +511,7 @@ export default function Home() {
           {selectedAttachment?.isPending ? (
             <DocumentAnalysisPanel
               attachment={selectedAttachment}
+              fileObj={selectedAttachment ? uploadedFiles[selectedAttachment.name] : null}
               onClose={() => {
                 setSelectedAttachment(null);
                 setDraftAttachments([]);
@@ -545,6 +552,7 @@ export default function Home() {
                   onComplete={handleNewChatComplete}
                   onCancel={handleNewChatCancel}
                   onGoToRedaction={handleGoToRedaction}
+                  onUploadFile={handleUploadFile}
                 />
               ) : (
                 <ChatPanel
@@ -574,6 +582,7 @@ export default function Home() {
                   initialInput={initialChatInput}
                   onInitialInputApplied={handleClearInitialChatInput}
                   autoSubmitInitialInput={!!pendingInitialMessage}
+                  onUploadFile={handleUploadFile}
                 />
               )
             }
@@ -610,6 +619,7 @@ export default function Home() {
                   ) : (
                     <DocumentAnalysisPanel
                       attachment={selectedAttachment}
+                      fileObj={selectedAttachment ? uploadedFiles[selectedAttachment.name] : null}
                       onClose={() => {
                         setSelectedAttachment(null);
                         setActiveRightTab("citations");

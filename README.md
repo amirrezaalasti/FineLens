@@ -4,10 +4,58 @@ Transparent German legal assistant powered by [Graphiti](https://github.com/getz
 
 Ask legal questions in German, get answers with **source citations** traced back to Graphiti episodes, and receive **prefilled legal forms** based on your profile.
 
+## Hamburg Legal Hackathon 2026
+
+FineLens was built for the **[2. Hamburg Legal Hackathon](https://hamburg-legal-hackathon.de/)** — **12.–14. June 2026** at Bucerius Law School in Hamburg. Under the theme **“(Legal) AI Buddies”**, interdisciplinary teams developed practical AI helpers for the legal domain.
+
+### Idea
+
+Many people receive official letters (e.g. BAföG repayment notices, traffic fines, tenancy disputes) without knowing what they mean, which deadlines apply, or what they can do next. FineLens is a **Civic & Legal Office Buddy**: upload a document or ask a question in plain language, get a structured legal assessment in Gutachtenstil, and move directly to **prefilled forms** (Widerspruch, DSGVO-Auskunft, Mietwiderspruch, and more) grounded in real statutes.
+
+### Novelty
+
+Unlike typical RAG chatbots that retrieve flat text chunks, FineLens models German law as a **knowledge graph**:
+
+- **Legal ontology** — Statutes are decomposed into *Tatbestandsmerkmale*, *Rechtsfolgen*, and *LegalSubjects*, mirroring how lawyers read norms.
+- **Multi-hop retrieval** — `REFERENCES` edges capture cross-references (e.g. § 558 BGB → §§ 559–560) for complex questions.
+- **Full traceability** — Every answer cites Graphiti episodes with law reference, title, excerpt, and URL back to the primary source.
+- **Document intelligence** — PDF analysis extracts fields with bounding boxes, flags PII for redaction, and applies domain rules (e.g. statutory one-year deadline when a *Rechtsbehelfsbelehrung* is missing under § 58 Abs. 2 VwGO).
+- **Human-in-the-loop privacy** — Before any document text is sent to the LLM, users review extracted fields, redact personal data (DSGVO), and explicitly release the sanitized version.
+- **Open legal corpus** — Ingestion pipelines connect Open Legal Data, Gesetze im Internet, recht.bund.de, and buzer.de into one searchable graph.
+
+### Contribution
+
+Over one hackathon weekend, the team delivered a **working end-to-end prototype**: Next.js frontend, FastAPI backend, Graphiti + FalkorDB graph store, a demo BAföG workflow, interactive knowledge-graph visualization, and prefilled forms tied to norms in the graph — showing how transparent, graph-based legal AI can support citizens without replacing qualified legal advice.
+
+## Demo
+
+The screenshots and video below use **synthetic example data only** (placeholder names, addresses, and case numbers). No real personal information is included.
+
+### 1. Legal chat with transparent citations
+
+Upload a document or ask a question — FineLens answers in Gutachtenstil, suggests follow-up questions, links to relevant forms, and shows every source used (with relevance scores from the Graphiti knowledge graph).
+
+![Legal chat with citations and form suggestions](frontend/public/demo_start.png)
+
+### 2. Human-in-the-loop PII redaction
+
+After PDF upload, FineLens extracts structured fields (authority, case reference, legal basis, amounts, deadlines). Personal data is flagged as DSGVO-sensitive; users redact it in the preview or table before releasing the document for analysis.
+
+![Document analysis with GDPR redaction](frontend/public/demo_pdf.png)
+
+[Watch the redaction workflow (video)](frontend/public/demo_human_in_loop_remove_confidential_data.mov)
+
+### 3. Prefilled legal forms
+
+Extracted profile and document data flows into legal forms — e.g. *Widerspruch gegen BAföG-Rückbescheid*, rent objections, DSGVO requests, and traffic-law appeals — each tied to the underlying statutes.
+
+![Prefilled legal forms](frontend/public/demo_forms.png)
+
 ## Features
 
 - **Graphiti Knowledge Graph** — Ingests laws from Open Legal Data, Gesetze im Internet, and recht.bund.de
 - **Transparent Answers** — Every response shows citations with law references and source URLs
+- **Document Analysis** — PDF field extraction with bounding boxes, PII detection, and human-in-the-loop redaction
 - **Interactive Forms** — Mietwiderspruch, Kündigungswiderspruch, DSGVO-Auskunft, Arbeitszeugnis — prefilled from user profile
 - **Profile Wizard** — 3-step onboarding collects data used across forms and chat context
 - **Source Dashboard** — Overview of all integrated legal data sources

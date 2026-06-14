@@ -16,7 +16,7 @@ def use_neo4j_chat_store() -> bool:
     backend = settings.graph_backend.lower()
     if backend == "neo4j":
         return True
-    # Vercel uses ephemeral /tmp for file storage; persist chats in Neo4j instead.
+    # Ephemeral serverless filesystems use /tmp; persist chats in Neo4j instead.
     return settings.data_dir.startswith("/tmp")
 
 

@@ -629,7 +629,7 @@ async def apply_redactions_endpoint(
         doc.save(out_stream, garbage=4, deflate=True)
         redacted_bytes = out_stream.getvalue()
         
-        # Try writing to UPLOAD_DIR (fails silently on Vercel, works locally)
+        # Try writing to UPLOAD_DIR (may fail on ephemeral serverless filesystems; works locally)
         if not file:
             try:
                 file_path.write_bytes(redacted_bytes)

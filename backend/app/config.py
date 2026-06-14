@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: str = "finelens123"
+    neo4j_password: str = "changeme"
     neo4j_database: str = "neo4j"
     oldp_api_base: str = "https://de.openlegaldata.io/api"
     oldp_api_key: str = ""

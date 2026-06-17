@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: FineLens
+message: >-
+  If you use FineLens in academic work or publications, please cite it using the
+  metadata below.
+type: software
+authors:
+  - family-names: Alasti
+    given-names: Amirreza
+  - family-names: Erdal
+    given-names: Efe
+repository-code: https://github.com/amirrezaalasti/RechtsLens
+url: https://github.com/amirrezaalasti/RechtsLens
+license: MIT
+version: 0.1.0
+date-released: 2026-06-14
+keywords:
+  - legal-ai
+  - knowledge-graph
+  - graphiti
+  - german-law
+  - civic-tech
+abstract: >-
+  Transparent German legal assistant powered by Graphiti knowledge graphs.
+  FineLens answers legal questions with source citations, analyzes official
+  documents with human-in-the-loop PII redaction, and prefills legal forms
+  grounded in statutes.

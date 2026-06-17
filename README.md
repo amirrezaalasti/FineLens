@@ -148,6 +148,25 @@ Open [http://localhost:3000](http://localhost:3000).
 | POST | `/ingest/seed` | Seed demo data |
 | GET | `/health` | System status |
 
+## Citation
+
+If you use FineLens in research or publications, please cite it. Metadata is in [`CITATION.cff`](CITATION.cff) (GitHub and Zenodo compatible).
+
+```bibtex
+@software{finelens2026,
+  author       = {Alasti, Amirreza and Erdal, Efe},
+  title        = {FineLens: Transparent German Legal Assistant with Graphiti Knowledge Graphs},
+  year         = {2026},
+  url          = {https://github.com/amirrezaalasti/RechtsLens},
+  version      = {0.1.0},
+  note         = {Built for the 2. Hamburg Legal Hackathon, 12--14 June 2026}
+}
+```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Disclaimer
 
 FineLens provides legal **information**, not legal **advice**. Always consult a qualified attorney for binding guidance.
